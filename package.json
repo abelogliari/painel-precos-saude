@@ -1,0 +1,14 @@
+{
+  "name": "painel-precos-saude",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Painel de Preços da Saúde — BPS (API ao vivo) + Compras.gov.br (dados estáticos)",
+  "scripts": {
+    "dev": "NODE_USE_ENV_PROXY=1 node scripts/dev-server.mjs",
+    "etl": "python3 scripts/etl_comprasgov.py"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
