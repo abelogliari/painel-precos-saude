@@ -1,8 +1,10 @@
-/* Painel de Preços da Saúde — núcleo do frontend.
+/* Painel de Preços da Saúde — frontend.
  *
- * Responsável por: filtros, carga das duas fontes (BPS ao vivo e Compras.gov.br estático),
- * indicadores, tabela, exportação CSV, estado na URL e a ponte com window.PainelCharts.
- * Script clássico, sem framework e sem etapa de build; carregado com defer depois de charts.js.
+ * Uma pesquisa, duas abas: os filtros (material, unidade, período e filtros adicionais) são preenchidos
+ * uma vez e consultam as duas fontes ao mesmo tempo — BPS (ao vivo) e Compras.gov.br (dados estáticos).
+ * Cada fonte tem a sua aba, com indicadores e tabela calculados só com os registros dela: nada é somado
+ * entre as fontes. O arquivo cuida também da exportação CSV e do estado na URL.
+ * Script clássico, sem framework e sem etapa de build.
  *
  * Formato das linhas (ROW), igual para as duas fontes:
  *  [0] data  [1] uf  [2] município  [3] instituição  [4] id da instituição  [5] fornecedor
@@ -29,8 +31,13 @@
   const MAX_SHARDS_EM_CACHE = 6;
   const TODAS = '*';
   const SEM_UNIDADE = '(SEM UNIDADE)';
-  const NOME_FONTE = ['BPS', 'Compras.gov.br'];
+  const NOME_FONTE = ['BPS', 'Compras.gov.br'];   // índice = fonte da linha ([16]) = aba
+  const ABAS = ['bps', 'cg'];                     // sufixo dos ids da aba/painel e valor de "aba" na URL
+  const ARQUIVO_FONTE = ['bps', 'comprasgov'];    // trecho do nome do CSV exportado
   const RE_DATA = /^\d{4}-\d{2}-\d{2}$/;
+  const GIRO = '<i class="giro" aria-hidden="true"></i>';
+  const AVISO = '<svg class="aba__aviso" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6L1.3 21h21.4L12 2.6z" fill="currentColor"/>' +
+    '<path d="M12 9.6v5.2" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="17.9" r="1.3" fill="#fff"/></svg>';
 
   /* ============================== Utilidades ============================== */
 
@@ -72,14 +79,16 @@
   /* --- Unidade de fornecimento: chave de comparação comum às duas fontes --- */
   const chavePorUnidade = new Map();   // texto original -> chave
   const rotuloPorChave = new Map();    // chave -> texto exibido
+  const limparUnidade = (u) => String(u).toUpperCase().replace(/\s+/g, ' ').trim();
+  const chaveDe = (limpo) => semAcento(limpo)
+    .replace(/(\d),0+(?!\d)/g, '$1')                // "10,00 ML" -> "10 ML"
+    .replace(/(\d,\d*?[1-9])0+(?!\d)/g, '$1');      // "2,50 ML"  -> "2,5 ML"
   function chaveUnidade(u) {
     if (u == null || u === '') u = SEM_UNIDADE;
     let k = chavePorUnidade.get(u);
     if (k === undefined) {
-      const limpo = String(u).toUpperCase().replace(/\s+/g, ' ').trim();
-      k = semAcento(limpo)
-        .replace(/(\d),0+(?!\d)/g, '$1')              // "10,00 ML" -> "10 ML"
-        .replace(/(\d,\d*?[1-9])0+(?!\d)/g, '$1');    // "2,50 ML"  -> "2,5 ML"
+      const limpo = limparUnidade(u);
+      k = chaveDe(limpo);
       chavePorUnidade.set(u, k);
       if (!rotuloPorChave.has(k)) rotuloPorChave.set(k, limpo);
     }
@@ -121,32 +130,34 @@
 
   const S = {
     item: null,                    // { codigo: number, descricao: string }
-    fonte: 'ambas',                // 'bps' | 'cg' | 'ambas'
+    aba: 0,                        // aba aberta, pelo índice da fonte: 0 = BPS | 1 = Compras.gov.br
     inicio: '', fim: '',           // AAAA-MM-DD
     unidade: null,                 // null = automática (a mais frequente) | TODAS | chave
-    ordem: { k: 0, dir: -1 },      // coluna (índice em COLS) e direção
-    pagina: 0,
-    aba: 'tabela',
+    ordem: [{ k: 0, dir: -1 }, { k: 0, dir: -1 }],   // por aba: coluna (índice em COLS) e direção
+    pagina: [0, 0],                // por aba
     bps: { estado: 'ocioso', rows: [], erro: '', truncado: false },
     cg: { estado: 'ocioso', rows: [], erro: '' },
   };
 
-  /* Dados derivados (recalculados a cada mudança de filtro ou chegada de dados). */
+  /* Dados derivados (recalculados a cada mudança de filtro ou chegada de dados).
+     O que é "por fonte" é sempre um par [BPS, Compras.gov.br]: as duas fontes nunca são somadas. */
   const V = {
-    versao: 0,
-    base: [],          // após fonte + período
-    obrig: null,       // após fonte + período + unidade (calculado sob demanda, para as facetas)
-    linhas: [],        // após todos os filtros
-    ordenadas: null,   // linhas na ordem da tabela (sob demanda)
-    unidades: [],      // [{ k, rot, n }]
-    unidade: TODAS,    // unidade efetivamente aplicada
-    carregando: false,
-    k: null,           // indicadores
+    base: [[], []],            // por fonte: após o período
+    obrig: null,               // por fonte: após período + unidade (sob demanda, para as facetas)
+    linhas: [[], []],          // por fonte: após todos os filtros
+    ordenadas: [null, null],   // por fonte: linhas na ordem da tabela (sob demanda)
+    k: [null, null],           // por fonte: indicadores
+    unidades: [],              // [{ k, rot, n: [BPS, Compras.gov.br], t: soma }]
+    unidade: TODAS,            // unidade efetivamente aplicada
   };
+
+  const dadosDaFonte = (f) => (f === 0 ? S.bps : S.cg);
+  const carregando = (f) => dadosDaFonte(f).estado === 'carregando';
 
   let meta;            // undefined = carregando | null = indisponível | objeto
   let metaPromessa;
   const el = {};
+  const P = [];        // por fonte: elementos da aba e do painel (ver prepararPaineis)
   const facetas = [];
   let facetaAberta = null;
 
@@ -312,7 +323,8 @@
     } else {
       cg = 'Compras.gov.br — extração indisponível no momento.';
     }
-    el.rodape.innerHTML = '<strong>Fontes:</strong> Banco de Preços em Saúde (BPS) — API de Dados Abertos do Ministério da Saúde, consulta ao vivo. ' + esc(cg);
+    el.rodape.innerHTML = '<strong>Fontes:</strong> aba BPS — Banco de Preços em Saúde, API de Dados Abertos do Ministério da Saúde, consulta ao vivo. Aba ' +
+      esc(cg) + ' Os filtros valem para as duas abas.';
     el.infoCg.textContent = info;
   }
 
@@ -477,103 +489,76 @@
     const m = n >> 1;
     return n & 1 ? a[m] : (a[m - 1] + a[m]) / 2;
   }
-  /** Mediana da união de dois vetores já ordenados (percorre até o meio, sem juntar). */
-  function mediana2(a, b) {
-    const na = a.length, nb = b.length, n = na + nb;
-    if (!n) return NaN;
-    const alvo = n >> 1;
-    let i = 0, j = 0, ant = 0, cur = 0;
-    for (let k = 0; k <= alvo; k++) {
-      ant = cur;
-      if (i < na && (j >= nb || a[i] <= b[j])) cur = a[i++]; else cur = b[j++];
-    }
-    return n & 1 ? cur : (ant + cur) / 2;
-  }
 
+  /** Aplica os filtros — os mesmos para as duas fontes — e calcula as linhas e os indicadores de cada fonte. */
   function recalcular() {
-    const usaBps = S.fonte !== 'cg', usaCg = S.fonte !== 'bps';
     const ini = S.inicio, fim = S.fim;
 
-    // 1ª passada: fonte + período; conta os registros por unidade.
-    const base = [];
-    const cont = new Map();
-    const grupos = [];
+    // 1ª passada: período; conta os registros de cada unidade em cada fonte.
+    const base = [[], []];
+    const cont = new Map();          // chave da unidade -> [nº no BPS, nº no Compras.gov.br]
     if (S.item) {
-      if (usaBps) grupos.push(S.bps.rows);
-      if (usaCg) grupos.push(S.cg.rows);
-    }
-    for (let g = 0; g < grupos.length; g++) {
-      const arr = grupos[g];
-      for (let i = 0, n = arr.length; i < n; i++) {
-        const r = arr[i], d = r[0];
-        if (d === null || d < ini || d > fim) continue;
-        base.push(r);
-        const k = r[17], c = cont.get(k);
-        cont.set(k, c === undefined ? 1 : c + 1);
+      for (let f = 0; f < 2; f++) {
+        const arr = dadosDaFonte(f).rows, b = base[f];
+        for (let i = 0, n = arr.length; i < n; i++) {
+          const r = arr[i], d = r[0];
+          if (d === null || d < ini || d > fim) continue;
+          b.push(r);
+          let c = cont.get(r[17]);
+          if (c === undefined) cont.set(r[17], c = [0, 0]);
+          c[f]++;
+        }
       }
     }
     const unidades = [];
-    cont.forEach((n, k) => unidades.push({ k: k, n: n, rot: rotuloUnidade(k) }));
-    unidades.sort((a, b) => b.n - a.n || (a.k < b.k ? -1 : 1));
+    cont.forEach((n, k) => unidades.push({ k: k, n: n, t: n[0] + n[1], rot: rotuloUnidade(k) }));
+    unidades.sort((a, b) => b.t - a.t || (a.k < b.k ? -1 : 1));
     const uni = S.unidade !== null ? S.unidade : (unidades.length ? unidades[0].k : TODAS);
 
-    // 2ª passada: unidade + filtros adicionais; acumula os indicadores por fonte.
+    // 2ª passada: unidade + filtros adicionais; linhas e indicadores de cada fonte, em separado.
     const todas = uni === TODAS;
     const ativos = [];
     for (let i = 0; i < facetas.length; i++) if (facetas[i].sel.size) ativos.push(facetas[i]);
-    const nf = ativos.length, nb = base.length;
-    const linhas = [];
-    const p0 = new Float64Array(nb), p1 = new Float64Array(nb);
-    let n0 = 0, n1 = 0, mn0 = Infinity, mn1 = Infinity, mx0 = -Infinity, mx1 = -Infinity;
-    let t0 = 0, t1 = 0, q0 = 0, q1 = 0;
-    for (let i = 0; i < nb; i++) {
-      const r = base[i];
-      if (!todas && r[17] !== uni) continue;
-      if (nf) {
-        let ok = true;
-        for (let j = 0; j < nf; j++) {
-          let v = r[ativos[j].def.c];
-          if (v === '' || v === undefined) v = null;
-          if (!ativos[j].sel.has(v)) { ok = false; break; }
+    const nf = ativos.length;
+    for (let f = 0; f < 2; f++) {
+      const b = base[f], nb = b.length, linhas = [];
+      const precos = new Float64Array(nb);
+      let n = 0, min = Infinity, max = -Infinity, total = 0, qtd = 0;
+      for (let i = 0; i < nb; i++) {
+        const r = b[i];
+        if (!todas && r[17] !== uni) continue;
+        if (nf) {
+          let ok = true;
+          for (let j = 0; j < nf; j++) {
+            let v = r[ativos[j].def.c];
+            if (v === '' || v === undefined) v = null;
+            if (!ativos[j].sel.has(v)) { ok = false; break; }
+          }
+          if (!ok) continue;
         }
-        if (!ok) continue;
+        linhas.push(r);
+        const p = r[10];
+        precos[n++] = p;
+        if (p < min) min = p;
+        if (p > max) max = p;
+        total += r[11];
+        qtd += r[9];
       }
-      linhas.push(r);
-      const p = r[10];
-      if (r[16] === 0) {
-        p0[n0++] = p; if (p < mn0) mn0 = p; if (p > mx0) mx0 = p; t0 += r[11]; q0 += r[9];
-      } else {
-        p1[n1++] = p; if (p < mn1) mn1 = p; if (p > mx1) mx1 = p; t1 += r[11]; q1 += r[9];
-      }
+      V.linhas[f] = linhas;
+      V.ordenadas[f] = null;
+      V.k[f] = { n: n, min: min, max: max, total: total, qtd: qtd, mediana: mediana(precos.subarray(0, n).sort()) };
     }
-    const s0 = p0.subarray(0, n0).sort(), s1 = p1.subarray(0, n1).sort();
-
-    V.versao++;
     V.base = base;
     V.obrig = null;
-    V.linhas = linhas;
-    V.ordenadas = null;
     V.unidades = unidades;
     V.unidade = uni;
-    V.carregando = !!S.item && ((usaBps && S.bps.estado === 'carregando') || (usaCg && S.cg.estado === 'carregando'));
-    V.k = {
-      f: [
-        { n: n0, min: mn0, max: mx0, total: t0, qtd: q0, mediana: mediana(s0) },
-        { n: n1, min: mn1, max: mx1, total: t1, qtd: q1, mediana: mediana(s1) },
-      ],
-      t: { n: n0 + n1, min: Math.min(mn0, mn1), max: Math.max(mx0, mx1), total: t0 + t1, qtd: q0 + q1, mediana: mediana2(s0, s1) },
-    };
   }
 
-  /** Linhas após os filtros obrigatórios (fonte, período e unidade): base das opções das facetas. */
+  /** Linhas de cada fonte após os filtros obrigatórios (período e unidade): base das opções das facetas. */
   function linhasObrigatorias() {
     if (!V.obrig) {
-      if (V.unidade === TODAS) V.obrig = V.base;
-      else {
-        const u = V.unidade, b = V.base, o = [];
-        for (let i = 0; i < b.length; i++) if (b[i][17] === u) o.push(b[i]);
-        V.obrig = o;
-      }
+      const u = V.unidade;
+      V.obrig = u === TODAS ? V.base : V.base.map((b) => b.filter((r) => r[17] === u));
     }
     return V.obrig;
   }
@@ -612,12 +597,12 @@
     return out;
   }
 
-  function linhasOrdenadas() {
-    if (!V.ordenadas) {
-      const c = COLS[S.ordem.k];
-      V.ordenadas = ordenar(V.linhas, c.c, c.tipo, S.ordem.dir);
+  function linhasOrdenadas(f) {
+    if (!V.ordenadas[f]) {
+      const o = S.ordem[f], c = COLS[o.k];
+      V.ordenadas[f] = ordenar(V.linhas[f], c.c, c.tipo, o.dir);
     }
-    return V.ordenadas;
+    return V.ordenadas[f];
   }
 
   /* ============================== Indicadores ============================== */
@@ -634,54 +619,43 @@
     { id: 'itens', v: (g) => fQtd.format(g.qtd) },
   ];
 
-  function prepararKpis() {
-    for (const d of KPIS) {
-      const card = el.kpis.querySelector('[data-kpi="' + d.id + '"]');
-      d.valor = card.querySelector('.kpi__valor');
-      d.lista = card.querySelector('.kpi__fontes');
-      d.b = [card.querySelector('[data-fonte="0"]'), card.querySelector('[data-fonte="1"]')];
-      d.li = [d.b[0].parentNode, d.b[1].parentNode];
-    }
-  }
-
+  /** Cada painel mostra os indicadores da sua fonte; os dois ficam em dia, então trocar de aba não recalcula nada. */
   function renderKpis() {
-    const k = V.k, ambas = S.fonte === 'ambas';
-    el.kpis.classList.toggle('is-carregando', V.carregando && k.t.n === 0);
-    el.resultados.setAttribute('aria-busy', V.carregando ? 'true' : 'false');
-    const esperando = [S.bps.estado === 'carregando', S.cg.estado === 'carregando'];
-    for (const d of KPIS) {
-      d.valor.textContent = k.t.n ? d.v(k.t) : '—';
-      d.lista.hidden = !ambas;
-      if (!ambas) continue;
-      for (let f = 0; f < 2; f++) {
-        d.b[f].textContent = k.f[f].n ? d.v(k.f[f]) : '—';
-        d.li[f].classList.toggle('is-carregando', esperando[f] && k.f[f].n === 0);
-      }
+    for (let f = 0; f < 2; f++) {
+      const p = P[f], k = V.k[f], espera = carregando(f);
+      p.kpis.classList.toggle('is-carregando', espera && k.n === 0);
+      p.painel.setAttribute('aria-busy', espera ? 'true' : 'false');
+      for (let i = 0; i < KPIS.length; i++) p.kpi[i].textContent = k.n ? KPIS[i].v(k) : '—';
     }
   }
 
   /* ============================== Unidade de fornecimento ============================== */
 
+  const porFonte = (n) => NOME_FONTE[0] + ' ' + int(n[0]) + ' · ' + NOME_FONTE[1] + ' ' + int(n[1]);
+
+  /** Lista única com as unidades das duas fontes; cada opção informa os registros de cada fonte no período. */
   let assinaturaUnidades = '';
   function renderUnidades() {
     const sel = el.unidade, us = V.unidades, efetiva = V.unidade;
-    let assinatura = efetiva + '\n' + V.base.length;
-    for (let i = 0; i < us.length; i++) assinatura += '\n' + us[i].k + '\t' + us[i].n;
+    const todas = [V.base[0].length, V.base[1].length];
+    let assinatura = efetiva + '\n' + (S.item ? todas.join('\t') : '');
+    for (let i = 0; i < us.length; i++) assinatura += '\n' + us[i].k + '\t' + us[i].n.join('\t');
     sel.disabled = !S.item;
     if (assinatura === assinaturaUnidades) return;
     assinaturaUnidades = assinatura;
-    let h = '<option value="' + TODAS + '">Todas as unidades' + (S.item ? ' (' + int(V.base.length) + ')' : '') + '</option>';
+    let h = '<option value="' + TODAS + '">Todas as unidades' + (S.item ? ' — ' + porFonte(todas) : '') + '</option>';
     let achou = efetiva === TODAS;
     for (let i = 0; i < us.length; i++) {
-      h += '<option value="' + esc(us[i].k) + '">' + esc(us[i].rot) + ' (' + int(us[i].n) + ')</option>';
+      h += '<option value="' + esc(us[i].k) + '">' + esc(us[i].rot) + ' — ' + porFonte(us[i].n) + '</option>';
       if (us[i].k === efetiva) achou = true;
     }
-    if (!achou) h += '<option value="' + esc(efetiva) + '">' + esc(rotuloUnidade(efetiva)) + ' (0)</option>';
+    if (!achou) h += '<option value="' + esc(efetiva) + '">' + esc(rotuloUnidade(efetiva)) + ' — ' + porFonte([0, 0]) + '</option>';
     sel.innerHTML = h;
     sel.value = efetiva;
+    sel.title = S.item ? sel.options[sel.selectedIndex].text : '';     // o campo pode cortar o texto da opção escolhida
   }
 
-  /* ============================== Tabela ============================== */
+  /* ============================== Tabela (uma por aba) ============================== */
 
   const COLS = [
     { t: 'Data', c: 0, tipo: 'data', cls: 'td--nw' },
@@ -697,43 +671,45 @@
     { t: 'Modalidade', c: 12, tipo: 'txt', cls: 'td--curto' },
     { t: 'Esfera', c: 13, tipo: 'txt', cls: 'td--nw' },
     { t: 'Tipo', c: 14, tipo: 'txt', cls: 'td--curto' },
-    { t: 'Fonte', c: 16, tipo: 'num', cls: 'td--nw' },
   ];
   const SELO = [
     '<span class="selo selo--bps"><i class="dot dot--bps" aria-hidden="true"></i>BPS</span>',
     '<span class="selo selo--cg"><i class="dot dot--cg" aria-hidden="true"></i>Compras.gov.br</span>',
   ];
   const VAZIO = '<span class="nulo" aria-label="não informado">—</span>';
-  let tabelaSuja = true;
 
-  function prepararTabela() {
+  function prepararTabela(p) {
     let h = '';
     for (let k = 0; k < COLS.length; k++) {
-      h += '<th scope="col"' + (COLS[k].tipo === 'num' && COLS[k].c !== 16 ? ' class="th--num"' : '') + ' data-k="' + k + '">' +
+      h += '<th scope="col"' + (COLS[k].tipo === 'num' ? ' class="th--num"' : '') + ' data-k="' + k + '">' +
         '<button type="button" class="th-btn" title="Ordenar por ' + esc(COLS[k].t) + '">' + esc(COLS[k].t) + '<span class="seta" aria-hidden="true"></span></button></th>';
     }
-    el.cab.innerHTML = h;
-    el.cab.addEventListener('click', (ev) => {
+    p.cab.innerHTML = h;
+    p.cab.addEventListener('click', (ev) => {
       const th = ev.target.closest('th');
       if (!th) return;
-      const k = Number(th.dataset.k);
-      if (S.ordem.k === k) S.ordem.dir = -S.ordem.dir;
-      else S.ordem = { k: k, dir: COLS[k].tipo === 'txt' ? 1 : -1 };
-      S.pagina = 0;
-      V.ordenadas = null;
-      renderTabela();
+      const k = Number(th.dataset.k), o = S.ordem[p.f];
+      if (o.k === k) o.dir = -o.dir;
+      else S.ordem[p.f] = { k: k, dir: COLS[k].tipo === 'txt' ? 1 : -1 };
+      S.pagina[p.f] = 0;
+      V.ordenadas[p.f] = null;
+      renderTabela(p.f);
     });
-    el.pgPrimeira.addEventListener('click', () => irParaPagina(0));
-    el.pgAnterior.addEventListener('click', () => irParaPagina(S.pagina - 1));
-    el.pgProxima.addEventListener('click', () => irParaPagina(S.pagina + 1));
-    el.pgUltima.addEventListener('click', () => irParaPagina(Infinity));
+    p.paginacao.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-pg]');
+      if (!b) return;
+      const pg = S.pagina[p.f];
+      irParaPagina(p.f, { primeira: 0, anterior: pg - 1, proxima: pg + 1, ultima: Infinity }[b.dataset.pg]);
+    });
   }
 
-  function irParaPagina(p) {
-    const ultima = Math.max(0, Math.ceil(V.linhas.length / POR_PAGINA) - 1);
-    S.pagina = Math.max(0, Math.min(ultima, p));
-    renderTabela();
-    el.rolagem.scrollTop = 0;
+  function irParaPagina(f, pg) {
+    const ultima = Math.max(0, Math.ceil(V.linhas[f].length / POR_PAGINA) - 1);
+    S.pagina[f] = Math.max(0, Math.min(ultima, pg));
+    renderTabela(f);
+    // A paginação fica no fim da tabela: volta ao começo dela para mostrar as linhas da nova página.
+    const topo = P[f].rolagem;
+    if (topo.getBoundingClientRect().top < 0) topo.scrollIntoView({ block: 'start' });
   }
 
   function rotuloId(r, colId) {
@@ -746,8 +722,7 @@
     let h = '<tr>';
     for (let k = 0; k < COLS.length; k++) {
       const c = COLS[k], v = r[c.c];
-      if (c.c === 16) h += '<td class="td--nw">' + (SELO[v] || '') + '</td>';
-      else if (v == null || v === '') h += '<td class="' + c.cls + '">' + VAZIO + '</td>';
+      if (v == null || v === '') h += '<td class="' + c.cls + '">' + VAZIO + '</td>';
       else if (c.tipo === 'num') h += '<td class="td--num">' + c.fmt.format(v) + '</td>';
       else if (c.tipo === 'data') h += '<td class="td--nw">' + dataBr(v) + '</td>';
       else if (c.id !== undefined && r[c.id]) h += '<td class="' + c.cls + '" title="' + esc(rotuloId(r, c.id)) + '">' + esc(v) + '</td>';
@@ -756,47 +731,59 @@
     return h + '</tr>';
   }
 
-  function mensagemTabelaVazia() {
-    if (V.carregando) return '<i class="giro" aria-hidden="true"></i> Carregando registros…';
-    if (V.base.length) return 'Nenhum registro com os filtros selecionados. Experimente outra unidade de fornecimento ou remova filtros adicionais.';
-    let dica = '';
-    const cg = S.cg.rows;
-    if (S.fonte !== 'bps' && cg.length) {
-      let min = cg[0][0], max = cg[0][0];
-      for (let i = 1; i < cg.length; i++) { const d = cg[i][0]; if (d < min) min = d; if (d > max) max = d; }
-      dica = ' O Compras.gov.br tem ' + registros(cg.length) + ' deste item entre ' + dataBr(min) + ' e ' + dataBr(max) + ': ajuste o período para vê-los.';
-    } else if (S.fonte === 'cg' && S.cg.estado === 'ok') {
-      dica = ' Este item não tem registros na extração do Compras.gov.br; experimente a fonte BPS.';
-    } else if (S.fonte !== 'cg' && S.bps.estado === 'ok') {
-      dica = ' Experimente ampliar o período.';
+  /** Aba sem linhas: explica o motivo e, se a outra aba tiver registros, oferece um atalho (a troca nunca é automática). */
+  function estadoVazio(f) {
+    const d = dadosDaFonte(f), nome = NOME_FONTE[f];
+    if (d.estado === 'carregando') {
+      return '<p>' + GIRO + (f === 0 ? 'Consultando o BPS…' : 'Carregando os registros do Compras.gov.br…') + '</p>';
     }
-    return 'Nenhum registro encontrado no período selecionado.' + esc(dica);
+    let msg;
+    if (d.estado === 'erro') {
+      msg = f === 0 ? 'A consulta ao BPS não foi concluída: não há registros para mostrar nesta aba.' : 'Os dados do Compras.gov.br não foram carregados: não há registros para mostrar nesta aba.';
+    } else if (d.estado === 'indisponivel') {
+      msg = 'A extração do Compras.gov.br não está disponível no momento.';
+    } else if (V.base[f].length) {
+      msg = 'Nenhum registro do ' + nome + ' atende aos filtros selecionados. Experimente outra unidade de fornecimento ou remova filtros adicionais.';
+    } else if (f === 0) {
+      msg = 'O BPS não tem registros deste material no período selecionado. Experimente ampliar o período.';
+    } else if (!d.rows.length) {
+      msg = 'Este material não tem registros na extração do Compras.gov.br.';
+    } else {
+      let min = d.rows[0][0], max = min;
+      for (let i = 1; i < d.rows.length; i++) { const dt = d.rows[i][0]; if (dt < min) min = dt; if (dt > max) max = dt; }
+      msg = 'O Compras.gov.br não tem registros deste material no período selecionado. A extração tem ' + registros(d.rows.length) +
+        ' dele, de ' + dataBr(min) + ' a ' + dataBr(max) + ': ajuste o período para vê-los.';
+    }
+    const outra = 1 - f, n = V.linhas[outra].length;
+    return '<p>' + esc(msg) + '</p>' +
+      (n ? '<button type="button" class="btn btn--secundario" data-ver="' + outra + '">Ver ' + registros(n) + ' em ' + NOME_FONTE[outra] + '</button>' : '');
   }
 
-  function renderTabela() {
-    if (S.aba !== 'tabela') { tabelaSuja = true; return; }
-    tabelaSuja = false;
-    const rows = linhasOrdenadas(), n = rows.length;
+  function renderTabela(f) {
+    const p = P[f];
+    if (f !== S.aba) { p.suja = true; return; }      // a tabela da aba fechada é refeita quando ela for aberta
+    p.suja = false;
+    const rows = linhasOrdenadas(f), n = rows.length;
     const paginas = Math.max(1, Math.ceil(n / POR_PAGINA));
-    if (S.pagina >= paginas) S.pagina = paginas - 1;
-    if (S.pagina < 0) S.pagina = 0;
-    const a = S.pagina * POR_PAGINA, b = Math.min(n, a + POR_PAGINA);
+    const pg = S.pagina[f] = Math.max(0, Math.min(paginas - 1, S.pagina[f]));
+    const a = pg * POR_PAGINA, b = Math.min(n, a + POR_PAGINA);
     let h = '';
     for (let i = a; i < b; i++) h += linhaHtml(rows[i]);
-    el.corpo.innerHTML = h;
+    p.corpo.innerHTML = h;
 
-    const ths = el.cab.children;
+    const o = S.ordem[f], ths = p.cab.children;
     for (let k = 0; k < ths.length; k++) {
-      if (k === S.ordem.k) ths[k].setAttribute('aria-sort', S.ordem.dir > 0 ? 'ascending' : 'descending');
+      if (k === o.k) ths[k].setAttribute('aria-sort', o.dir > 0 ? 'ascending' : 'descending');
       else ths[k].removeAttribute('aria-sort');
     }
-    el.vazia.hidden = n > 0;
-    if (!n) el.vazia.innerHTML = mensagemTabelaVazia();
-    el.paginacao.hidden = n === 0;
-    el.pgInfo.textContent = n ? int(a + 1) + '–' + int(b) + ' de ' + int(n) : '0 de 0';
-    el.pgPrimeira.disabled = el.pgAnterior.disabled = S.pagina === 0;
-    el.pgProxima.disabled = el.pgUltima.disabled = S.pagina >= paginas - 1;
-    el.resumo.textContent = n ? registros(n) + (n === 1 ? ' encontrado' : ' encontrados') + (V.carregando ? ' até agora' : '') : '';
+    const vazio = n ? '' : estadoVazio(f);
+    if (vazio !== p.vazioHtml) { p.vazioHtml = vazio; p.vazia.innerHTML = vazio; }
+    p.vazia.hidden = n > 0;
+    p.rolagem.hidden = p.paginacao.hidden = n === 0;
+    p.pgInfo.textContent = n ? int(a + 1) + '–' + int(b) + ' de ' + int(n) : '0 de 0';
+    p.pg.primeira.disabled = p.pg.anterior.disabled = pg === 0;
+    p.pg.proxima.disabled = p.pg.ultima.disabled = pg >= paginas - 1;
+    p.resumo.innerHTML = SELO[f] + (n ? '<span>' + registros(n) + (n === 1 ? ' encontrado' : ' encontrados') + (carregando(f) ? ' até agora' : '') + '</span>' : '');
   }
 
   /* ============================== Exportação CSV ============================== */
@@ -814,9 +801,11 @@
     return s.replace('.', ',');
   }
 
+  /** Exporta os registros filtrados da aba aberta, na ordem da tabela. */
   function exportarCsv() {
-    if (!S.item || !V.linhas.length) return;
-    const rows = linhasOrdenadas();
+    const f = S.aba;
+    if (!S.item || !V.linhas[f].length) return;
+    const rows = linhasOrdenadas(f);
     const cab = ['Código CATMAT', 'Descrição do material', 'Data da compra', 'UF', 'Município', 'Instituição compradora',
       'Identificador da instituição (CNPJ ou UASG)', 'Fornecedor', 'CNPJ/CPF do fornecedor', 'Fabricante/Marca',
       'Unidade de fornecimento', 'Quantidade', 'Preço unitário (R$)', 'Valor total (R$)', 'Modalidade', 'Esfera',
@@ -838,7 +827,7 @@
     const a = document.createElement('a');
     const url = URL.createObjectURL(blob);
     a.href = url;
-    a.download = 'precos-saude_' + S.item.codigo + '_' + S.inicio + '_' + S.fim + '.csv';
+    a.download = 'precos-' + ARQUIVO_FONTE[f] + '-' + S.item.codigo + '.csv';
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
@@ -888,12 +877,16 @@
     const rotulo = (v) => (v === null ? 'Não informado' : (def.rot && def.rot[v]) || String(v));
 
     function calcularOpcoes() {
-      const rows = linhasObrigatorias(), c = def.c, m = new Map();
-      for (let i = 0, n = rows.length; i < n; i++) {
-        let v = rows[i][c];
-        if (v === '' || v === undefined) v = null;
-        const a = m.get(v);
-        m.set(v, a === undefined ? 1 : a + 1);
+      // Valores e contagens das DUAS fontes: o mesmo filtro vale para as duas abas.
+      const grupos = linhasObrigatorias(), c = def.c, m = new Map();
+      for (let f = 0; f < 2; f++) {
+        const rows = grupos[f];
+        for (let i = 0, n = rows.length; i < n; i++) {
+          let v = rows[i][c];
+          if (v === '' || v === undefined) v = null;
+          const a = m.get(v);
+          m.set(v, a === undefined ? 1 : a + 1);
+        }
       }
       sel.forEach((v) => { if (!m.has(v)) m.set(v, 0); });
       ops = [];
@@ -917,7 +910,7 @@
           '<span class="faceta__v">' + esc(o.rot) + '</span><span class="faceta__c">' + int(o.n) + '</span></label></li>';
       }
       if (!visiveis.length) {
-        h = '<li class="faceta__vazio">' + (ops.length ? 'Nenhum valor encontrado para a busca.' : (V.carregando ? 'Carregando valores…' : 'Nenhum valor disponível.')) + '</li>';
+        h = '<li class="faceta__vazio">' + (ops.length ? 'Nenhum valor encontrado para a busca.' : (carregando(0) || carregando(1) ? 'Carregando valores…' : 'Nenhum valor disponível.')) + '</li>';
       }
       lista.innerHTML = h;
       info.textContent = (q ? int(total) + ' de ' : '') + int(ops.length) + (ops.length === 1 ? ' valor' : ' valores') + (sel.size ? ' · ' + int(sel.size) + (sel.size === 1 ? ' selecionado' : ' selecionados') : '');
@@ -1017,11 +1010,11 @@
       if (cx.checked) sel.add(o.v); else sel.delete(o.v);
       atualizarBotao();
       btnLimpar.hidden = sel.size === 0;
-      S.pagina = 0;
+      zerarPaginas();
       agendar();
     });
     btnLimpar.addEventListener('click', () => {
-      if (self.limpar()) { S.pagina = 0; agendar(); }
+      if (self.limpar()) { zerarPaginas(); agendar(); }
       busca.focus();
     });
     raiz.addEventListener('keydown', (ev) => {
@@ -1251,6 +1244,8 @@
     document.title = (item.descricao ? item.codigo + ' — ' + item.descricao : 'Código ' + item.codigo) + ' | Painel de Preços da Saúde';
   }
 
+  function zerarPaginas() { S.pagina[0] = S.pagina[1] = 0; }
+
   function selecionarItem(item, manterFiltros) {
     S.item = { codigo: Number(item.codigo), descricao: item.descricao || '' };
     if (!S.item.descricao) {
@@ -1258,7 +1253,7 @@
       if (i >= 0) S.item.descricao = Cat.desc[i];
     }
     if (!manterFiltros) { S.unidade = null; limparFacetas(); }
-    S.pagina = 0;
+    zerarPaginas();
     mostrarItem();
     carregarCg();
     carregarBps();
@@ -1270,7 +1265,7 @@
     if (abortCg) abortCg.abort();
     S.item = null;
     S.unidade = null;
-    S.pagina = 0;
+    zerarPaginas();
     S.bps = { estado: 'ocioso', rows: [], erro: '', truncado: false };
     S.cg = { estado: 'ocioso', rows: [], erro: '' };
     limparFacetas();
@@ -1299,120 +1294,165 @@
 
   /* ============================== Situação das consultas ============================== */
 
-  let statusHtml = '', alertasHtml = '';
+  /** Uma linha para as duas fontes: registros de cada uma no período (antes da unidade e dos filtros adicionais). */
+  let statusHtml = '';
   function renderSituacao() {
-    if (!S.item) { el.situacao.hidden = true; statusHtml = alertasHtml = ''; el.status.innerHTML = ''; el.alertas.innerHTML = ''; return; }
+    if (!S.item) { el.situacao.hidden = true; statusHtml = ''; el.status.innerHTML = ''; return; }
     el.situacao.hidden = false;
-    const b = S.bps, c = S.cg;
-    const giro = '<i class="giro" aria-hidden="true"></i>';
-    let tb, tc, espera = false;
-    if (b.estado === 'carregando') { tb = (b.rows.length ? registros(b.rows.length) + ' carregados…' : 'consultando…') + giro; espera = true; }
+    const b = S.bps, c = S.cg, nb = V.base[0].length, nc = V.base[1].length;
+    let tb, tc;
+    if (b.estado === 'carregando') tb = (b.rows.length ? registros(b.rows.length) + ' carregados…' : 'consultando…') + GIRO;
     else if (b.estado === 'erro') tb = b.rows.length ? 'consulta interrompida (' + registros(b.rows.length) + ' carregados)' : 'consulta não concluída';
-    else tb = b.rows.length ? registros(b.rows.length) + ' no período' : 'nenhum registro no período';
-    if (c.estado === 'carregando') { tc = 'carregando…' + giro; espera = true; }
+    else tb = nb ? registros(nb) + ' no período' : 'nenhum registro no período';
+    if (c.estado === 'carregando') tc = 'carregando…' + GIRO;
     else if (c.estado === 'erro') tc = 'dados não carregados';
     else if (c.estado === 'indisponivel') tc = 'extração indisponível no momento';
-    else tc = c.rows.length ? registros(c.rows.length) + ' do item na extração' : 'nenhum registro deste item na extração';
+    else if (!c.rows.length) tc = 'material sem registros na extração';
+    else tc = (nc ? registros(nc) + ' no período' : 'nenhum registro no período') + ' (' + int(c.rows.length) + ' na extração)';
     const h = '<span class="st"><i class="dot dot--bps" aria-hidden="true"></i><b>BPS:</b> ' + tb + '</span>' +
+      '<span class="st__sep" aria-hidden="true">·</span>' +
       '<span class="st"><i class="dot dot--cg" aria-hidden="true"></i><b>Compras.gov.br:</b> ' + tc + '</span>';
     if (h !== statusHtml) { statusHtml = h; el.status.innerHTML = h; }
-    el.progresso.hidden = !espera;
+    el.progresso.hidden = !(carregando(0) || carregando(1));
+  }
 
-    let a = '';
+  /** Erros e avisos ficam no painel da fonte a que se referem (a aba dela ganha um sinal de alerta). */
+  function renderAlertas() {
+    const b = S.bps, c = S.cg;
+    const repetir = '<button type="button" class="btn btn--secundario btn--mini" data-repetir>Tentar novamente</button>';
+    const html = ['', ''];
     if (b.estado === 'erro') {
-      a += '<div class="alerta alerta--erro" role="alert"><span class="alerta__txt"><b>BPS:</b> ' + esc(b.erro) +
-        (c.rows.length ? ' Os dados do Compras.gov.br continuam disponíveis.' : '') + '</span>' +
-        '<button type="button" class="btn btn--secundario btn--mini" data-repetir="bps">Tentar novamente</button></div>';
+      html[0] += '<div class="alerta alerta--erro" role="alert"><span class="alerta__txt"><b>BPS:</b> ' + esc(b.erro) +
+        (c.rows.length ? ' Os registros do Compras.gov.br continuam disponíveis na outra aba.' : '') + '</span>' + repetir + '</div>';
     }
     if (b.truncado) {
-      a += '<div class="alerta alerta--aviso" role="status"><span class="alerta__txt"><b>BPS:</b> a consulta foi interrompida em ' +
-        int(BPS_MAX_PAGINAS * BPS_POR_PAGINA) + ' registros (limite do painel). Os indicadores do BPS estão incompletos: reduza o período para ver todos os registros.</span></div>';
+      html[0] += '<div class="alerta alerta--aviso" role="status"><span class="alerta__txt"><b>BPS:</b> a consulta foi interrompida em ' +
+        int(BPS_MAX_PAGINAS * BPS_POR_PAGINA) + ' registros (limite do painel). Os indicadores desta aba estão incompletos: reduza o período para ver todos os registros.</span></div>';
     }
     if (c.estado === 'erro') {
-      a += '<div class="alerta alerta--erro" role="alert"><span class="alerta__txt"><b>Compras.gov.br:</b> ' + esc(c.erro) +
-        (b.rows.length ? ' Os dados do BPS continuam disponíveis.' : '') + '</span>' +
-        '<button type="button" class="btn btn--secundario btn--mini" data-repetir="cg">Tentar novamente</button></div>';
+      html[1] += '<div class="alerta alerta--erro" role="alert"><span class="alerta__txt"><b>Compras.gov.br:</b> ' + esc(c.erro) +
+        (b.rows.length ? ' Os registros do BPS continuam disponíveis na outra aba.' : '') + '</span>' + repetir + '</div>';
     }
-    if (a !== alertasHtml) { alertasHtml = a; el.alertas.innerHTML = a; }
+    for (let f = 0; f < 2; f++) {
+      const p = P[f];
+      if (html[f] !== p.alertasHtml) { p.alertasHtml = html[f]; p.alertas.innerHTML = html[f]; }
+    }
   }
 
   function renderResumoImpressao() {
     if (!S.item) { el.resumoImp.textContent = ''; return; }
+    const f = S.aba, outra = 1 - f;
     const partes = [
+      'Aba impressa: ' + NOME_FONTE[f] + ' (' + registros(V.linhas[f].length) + ')',
       'Unidade: ' + (V.unidade === TODAS ? 'todas' : rotuloUnidade(V.unidade)),
       'Período: ' + dataBr(S.inicio) + ' a ' + dataBr(S.fim),
-      'Fonte: ' + (S.fonte === 'ambas' ? 'BPS e Compras.gov.br' : S.fonte === 'bps' ? 'BPS' : 'Compras.gov.br'),
     ];
-    for (const f of facetas) {
-      if (!f.sel.size) continue;
+    for (const fa of facetas) {
+      if (!fa.sel.size) continue;
       const vs = [];
-      f.sel.forEach((v) => vs.push(f.rotulo(v)));
-      partes.push(f.def.t + ': ' + vs.join(', '));
+      fa.sel.forEach((v) => vs.push(fa.rotulo(v)));
+      partes.push(fa.def.t + ': ' + vs.join(', '));
     }
+    partes.push('Com os mesmos filtros, a aba ' + NOME_FONTE[outra] + ' (fora desta impressão) tem ' + registros(V.linhas[outra].length));
     el.resumoImp.textContent = partes.join(' · ');
   }
 
-  /* ============================== Gráficos (window.PainelCharts) ============================== */
+  /* ============================== Abas e painéis (um par por fonte) ============================== */
 
-  let graficosVersao = -1, graficosTimer = 0;
-
-  function contexto() {
-    return {
-      fonte: S.fonte,
-      item: S.item ? { codigo: S.item.codigo, descricao: S.item.descricao || '' } : null,
-      periodo: { inicio: S.inicio, fim: S.fim },
-    };
+  /** Monta os dois painéis a partir do mesmo modelo e guarda em P[f] os elementos de cada fonte. */
+  function prepararPaineis() {
+    const modelo = $('modelo-painel');
+    for (let f = 0; f < 2; f++) {
+      const painel = $('painel-' + ABAS[f]);
+      painel.appendChild(modelo.content.cloneNode(true));
+      const p = { f: f, aba: $('aba-' + ABAS[f]), badge: $('aba-' + ABAS[f] + '-n'), painel: painel, kpi: [], pg: {}, suja: true };
+      painel.querySelectorAll('[data-p]').forEach((e) => { p[e.dataset.p] = e; });
+      painel.querySelectorAll('[data-pg]').forEach((e) => { p.pg[e.dataset.pg] = e; });
+      for (const d of KPIS) p.kpi.push(painel.querySelector('[data-kpi="' + d.id + '"] .kpi__valor'));
+      p.kpis.setAttribute('aria-label', 'Indicadores — ' + NOME_FONTE[f]);
+      p.rolagem.setAttribute('aria-label', 'Tabela de compras registradas — ' + NOME_FONTE[f]);
+      p.legenda.textContent = 'Compras registradas do material selecionado na fonte ' + NOME_FONTE[f] + ', conforme os filtros aplicados';
+      p.paginacao.setAttribute('aria-label', 'Paginação da tabela — ' + NOME_FONTE[f]);
+      prepararTabela(p);
+      painel.addEventListener('click', (ev) => {
+        const b = ev.target.closest('button');
+        if (!b || !S.item) return;
+        if (b === p.baixar) exportarCsv();
+        else if (b.dataset.ver !== undefined) mostrarAba(Number(b.dataset.ver), true);
+        else if (b.dataset.repetir !== undefined) {
+          p.aba.focus();                    // o botão some com o alerta: o foco vai para a aba, que mostra o andamento
+          if (f === 0) carregarBps(); else carregarCg();
+        }
+      });
+      P.push(p);
+    }
   }
 
-  function renderGraficos(aoMostrar) {
-    clearTimeout(graficosTimer);
-    if (S.aba !== 'graficos' || !S.item) return;
-    const PC = window.PainelCharts;
-    if (!PC || typeof PC.render !== 'function') {
-      if (!el.charts.firstChild) el.charts.innerHTML = '<p class="graficos-indisp">Gráficos indisponíveis</p>';
-      return;
-    }
-    try {
-      if (graficosVersao !== V.versao) {
-        graficosVersao = V.versao;
-        PC.render(el.charts, V.linhas, contexto());
+  /** Selo de cada aba: nº de registros da fonte que atendem a todos os filtros; sinaliza carga em andamento e falha. */
+  function renderAbas() {
+    for (let f = 0; f < 2; f++) {
+      const p = P[f], estado = dadosDaFonte(f).estado, n = V.linhas[f].length;
+      let h;
+      if (estado === 'carregando') {
+        h = (n ? int(n) : '') + GIRO + '<span class="sr">' + (n ? ' registros até agora, ' : '') + 'carregando</span>';
+      } else if (estado === 'erro' || estado === 'indisponivel') {
+        h = (n ? int(n) + '<span class="sr"> registros carregados, </span>' : '') + AVISO +
+          '<span class="sr">' + (estado === 'erro' ? 'consulta não concluída' : 'fonte indisponível') + '</span>';
+      } else {
+        h = int(n) + '<span class="sr">' + (n === 1 ? ' registro' : ' registros') + '</span>';
       }
-      if (aoMostrar && typeof PC.resize === 'function') PC.resize();
-    } catch (e) {
-      console.error('[painel] falha ao desenhar os gráficos:', e);
+      if (h !== p.badgeHtml) { p.badgeHtml = h; p.badge.innerHTML = h; }
     }
   }
 
-  function agendarGraficos() {
-    if (S.aba !== 'graficos' || !S.item) return;
-    clearTimeout(graficosTimer);
-    graficosTimer = setTimeout(renderGraficos, 120, false);
+  function marcarAba() {
+    for (const p of P) {
+      const aberta = p.f === S.aba;
+      p.aba.setAttribute('aria-selected', aberta ? 'true' : 'false');
+      p.aba.tabIndex = aberta ? 0 : -1;
+      p.painel.hidden = !aberta;
+    }
   }
 
-  /* ============================== Abas ============================== */
-
-  function mostrarAba(nome, focar) {
-    S.aba = nome;
-    const tabela = nome === 'tabela';
-    el.abaTabela.setAttribute('aria-selected', tabela ? 'true' : 'false');
-    el.abaGraficos.setAttribute('aria-selected', tabela ? 'false' : 'true');
-    el.abaTabela.tabIndex = tabela ? 0 : -1;
-    el.abaGraficos.tabIndex = tabela ? -1 : 0;
-    el.painelTabela.hidden = !tabela;
-    el.painelGraficos.hidden = tabela;
-    if (focar) (tabela ? el.abaTabela : el.abaGraficos).focus();
-    if (tabela) { if (tabelaSuja) renderTabela(); }
-    else renderGraficos(true);
+  /** Troca de aba: só acontece por ação da pessoa (clique, teclado ou o atalho do estado vazio). */
+  function mostrarAba(f, focar) {
+    if (f !== S.aba) {
+      S.aba = f;
+      marcarAba();
+      if (P[f].suja) renderTabela(f);
+      renderExportacao();
+      renderResumoImpressao();
+      gravarUrl();
+    }
+    if (focar) P[f].aba.focus();
   }
 
   function prepararAbas() {
-    el.abaTabela.addEventListener('click', () => mostrarAba('tabela', false));
-    el.abaGraficos.addEventListener('click', () => mostrarAba('graficos', false));
-    el.abaTabela.parentNode.addEventListener('keydown', (ev) => {
-      if (ev.key === 'ArrowRight' || ev.key === 'ArrowLeft') { ev.preventDefault(); mostrarAba(S.aba === 'tabela' ? 'graficos' : 'tabela', true); }
-      else if (ev.key === 'Home') { ev.preventDefault(); mostrarAba('tabela', true); }
-      else if (ev.key === 'End') { ev.preventDefault(); mostrarAba('graficos', true); }
+    const lista = P[0].aba.parentNode;
+    lista.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[role="tab"]');
+      if (b) mostrarAba(ABAS.indexOf(b.dataset.aba), false);
     });
+    lista.addEventListener('keydown', (ev) => {
+      if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
+      let f;
+      if (ev.key === 'ArrowRight' || ev.key === 'ArrowLeft') f = 1 - S.aba;
+      else if (ev.key === 'Home') f = 0;
+      else if (ev.key === 'End') f = 1;
+      else return;
+      ev.preventDefault();
+      mostrarAba(f, true);
+    });
+  }
+
+  /** "Baixar dados" (em cada painel) e "Exportar" (no cabeçalho) valem para a aba aberta. */
+  function renderExportacao() {
+    for (const p of P) p.baixar.disabled = !V.linhas[p.f].length;
+    const n = V.linhas[S.aba].length, nome = NOME_FONTE[S.aba];
+    el.btnExportar.disabled = !n;
+    el.btnExportar.title = !S.item ? 'Selecione um material para exportar os dados'
+      : n ? 'Baixar em CSV ' + (n === 1 ? 'o registro' : 'os ' + registros(n)) + ' da aba ' + nome
+        : 'A aba ' + nome + ' não tem registros para exportar';
   }
 
   /* ============================== URL ============================== */
@@ -1420,18 +1460,17 @@
   let ultimaUrl = null;
   function gravarUrl() {
     const p = new URLSearchParams();
+    if (S.item) p.set('codigo', String(S.item.codigo));
+    if (S.aba !== 0) p.set('aba', ABAS[S.aba]);         // a aba padrão (BPS) não precisa ir para a URL
     if (S.item) {
-      p.set('codigo', String(S.item.codigo));
-      p.set('fonte', S.fonte);
       p.set('inicio', S.inicio);
       p.set('fim', S.fim);
       // A unidade automática só é gravada quando as cargas terminam (antes disso ela ainda pode mudar).
-      if (S.unidade !== null || !(S.bps.estado === 'carregando' || S.cg.estado === 'carregando')) {
+      if (S.unidade !== null || !(carregando(0) || carregando(1))) {
         p.set('unidade', V.unidade === TODAS ? 'todas' : V.unidade);
       }
     } else {
       const d = periodoPadrao();
-      if (S.fonte !== 'ambas') p.set('fonte', S.fonte);
       if (S.inicio !== d.inicio || S.fim !== d.fim) { p.set('inicio', S.inicio); p.set('fim', S.fim); }
     }
     const qs = p.toString();
@@ -1443,20 +1482,22 @@
 
   function lerUrl() {
     const q = new URLSearchParams(location.search);
-    const f = q.get('fonte');
-    if (f === 'bps' || f === 'cg' || f === 'ambas') S.fonte = f;
+    // Links antigos traziam "fonte=bps|cg|ambas": "cg" abre a aba do Compras.gov.br; os demais, a do BPS.
+    const aba = ABAS.indexOf(q.get('aba'));
+    if (aba >= 0) S.aba = aba;
+    else if (q.get('fonte') === 'cg') S.aba = 1;
     const d = periodoPadrao();
     const i = q.get('inicio'), t = q.get('fim');
     S.inicio = dataValida(i) ? i : d.inicio;
     S.fim = dataValida(t) ? t : d.fim;
     if (S.inicio > S.fim) { S.inicio = d.inicio; S.fim = d.fim; }
     const u = q.get('unidade');
-    if (u) S.unidade = u.toLowerCase() === 'todas' ? TODAS : chaveUnidade(u);
+    if (u) S.unidade = u.toLowerCase() === 'todas' ? TODAS : chaveDe(limparUnidade(u));
     const c = q.get('codigo');
     return c && /^\d{1,9}$/.test(c) ? Number(c) : null;
   }
 
-  /* ============================== Período, fonte e demais controles ============================== */
+  /* ============================== Período e demais controles ============================== */
 
   let periodoTimer = 0;
   function erroPeriodo(msg) {
@@ -1475,7 +1516,7 @@
     if (i === S.inicio && t === S.fim) return;
     S.inicio = i;
     S.fim = t;
-    S.pagina = 0;
+    zerarPaginas();
     if (S.item) carregarBps();     // o Compras.gov.br é filtrado por data no navegador
     agendar();
   }
@@ -1487,24 +1528,16 @@
     el.inicio.addEventListener('blur', () => { clearTimeout(periodoTimer); aplicarPeriodo(); });
     el.fim.addEventListener('blur', () => { clearTimeout(periodoTimer); aplicarPeriodo(); });
 
-    el.fonte.addEventListener('change', (ev) => {
-      const v = ev.target && ev.target.value;
-      if (v !== 'bps' && v !== 'cg' && v !== 'ambas') return;
-      S.fonte = v;
-      S.pagina = 0;
-      agendar();
-    });
-
     el.unidade.addEventListener('change', () => {
       S.unidade = el.unidade.value;
-      S.pagina = 0;
+      zerarPaginas();
       agendar();
     });
 
     el.limpar.addEventListener('click', () => {
       limparFacetas();
       S.unidade = null;
-      S.pagina = 0;
+      zerarPaginas();
       const d = periodoPadrao();
       const mudou = d.inicio !== S.inicio || d.fim !== S.fim;
       S.inicio = d.inicio;
@@ -1523,15 +1556,9 @@
       const ref = tagsRef[Number(b.dataset.i)];
       if (!ref) return;
       ref.f.remover(ref.v);
-      S.pagina = 0;
+      zerarPaginas();
       agendar();
       el.maisToggle.focus();
-    });
-
-    el.alertas.addEventListener('click', (ev) => {
-      const b = ev.target.closest('[data-repetir]');
-      if (!b || !S.item) return;
-      if (b.dataset.repetir === 'bps') carregarBps(); else carregarCg();
     });
 
     el.chips.addEventListener('click', (ev) => {
@@ -1542,7 +1569,6 @@
       el.conteudo.focus({ preventScroll: true });
     });
 
-    el.btnBaixar.addEventListener('click', exportarCsv);
     el.btnExportar.addEventListener('click', exportarCsv);
 
     // Modal de informações (elemento <dialog>: foco preso, Esc fecha, foco volta ao botão).
@@ -1569,18 +1595,16 @@
   function atualizar() {
     recalcular();
     renderUnidades();
+    renderAbas();
     renderKpis();
-    tabelaSuja = true;
-    renderTabela();
+    P[0].suja = P[1].suja = true;
+    renderTabela(S.aba);
     renderSituacao();
+    renderAlertas();
     renderTags();
+    renderExportacao();
     renderResumoImpressao();
-    const semDados = !S.item || V.linhas.length === 0;
-    el.btnBaixar.disabled = semDados;
-    el.btnExportar.disabled = semDados;
-    el.btnExportar.title = semDados ? 'Selecione um material para exportar os dados' : 'Baixar os ' + registros(V.linhas.length) + ' filtrados em CSV';
     if (facetaAberta) facetaAberta.atualizarLista();
-    agendarGraficos();
     gravarUrl();
   }
 
@@ -1589,15 +1613,11 @@
   function iniciar() {
     const ids = {
       conteudo: 'conteudo', itemInput: 'item-input', itemLista: 'item-lista', itemLimpar: 'item-limpar',
-      unidade: 'unidade', inicio: 'inicio', fim: 'fim', periodo: 'periodo', periodoErro: 'periodo-erro', fonte: 'fonte',
+      unidade: 'unidade', inicio: 'inicio', fim: 'fim', periodo: 'periodo', periodoErro: 'periodo-erro',
       maisToggle: 'mais-toggle', maisCorpo: 'mais-filtros', maisContagem: 'mais-contagem', facetas: 'facetas',
-      tags: 'tags', limpar: 'limpar', situacao: 'situacao', status: 'status', progresso: 'progresso', alertas: 'alertas',
+      tags: 'tags', limpar: 'limpar', situacao: 'situacao', status: 'status', progresso: 'progresso',
       vazio: 'vazio', vazioFreq: 'vazio-freq', vazioNota: 'vazio-nota', chips: 'chips',
-      resultados: 'resultados', titulo: 'item-titulo', resumoImp: 'resumo-impressao', kpis: 'kpis',
-      abaTabela: 'aba-tabela', abaGraficos: 'aba-graficos', painelTabela: 'painel-tabela', painelGraficos: 'painel-graficos',
-      resumo: 'tabela-resumo', btnBaixar: 'btn-baixar', rolagem: 'tabela-rolagem', cab: 'tabela-cab', corpo: 'tabela-corpo',
-      vazia: 'tabela-vazia', paginacao: 'paginacao', pgPrimeira: 'pg-primeira', pgAnterior: 'pg-anterior', pgInfo: 'pg-info',
-      pgProxima: 'pg-proxima', pgUltima: 'pg-ultima', charts: 'charts', rodape: 'rodape-fontes',
+      resultados: 'resultados', titulo: 'item-titulo', resumoImp: 'resumo-impressao', rodape: 'rodape-fontes',
       btnInfo: 'btn-info', btnExportar: 'btn-exportar', modal: 'modal-info', infoCg: 'info-cg-extracao',
     };
     for (const k in ids) el[k] = $(ids[k]);
@@ -1605,14 +1625,12 @@
     const codigoInicial = lerUrl();
     el.inicio.value = S.inicio;
     el.fim.value = S.fim;
-    const radio = el.fonte.querySelector('input[value="' + S.fonte + '"]');
-    if (radio) radio.checked = true;
 
-    prepararKpis();
-    prepararTabela();
+    prepararPaineis();
+    prepararAbas();
+    marcarAba();
     prepararFacetas();
     prepararCombo();
-    prepararAbas();
     prepararControles();
 
     carregarMeta();
