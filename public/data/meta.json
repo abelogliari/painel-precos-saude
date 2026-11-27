@@ -5,7 +5,7 @@
  "itens": 44606,
  "dataMin": "2020-12-24",
  "dataMax": "2026-11-23",
- "geradoEm": "2026-11-27T16:38:37Z",
+ "geradoEm": "2026-11-27T16:48:26Z",
  "colunas": [
   "data",
   "uf",
@@ -45,7 +45,7 @@
   "Pregão": 1693619,
   "Dispensa de Licitação": 142581,
   "Inexigibilidade de Licitação": 19725,
-  "Modalidade 12": 45,
+  "Credenciamento": 45,
   "Concorrência": 37,
   "RDC": 28
  },
@@ -67,5 +67,5 @@
   "linhas": 5690
  },
  "bytesCatalogo": 2063624,
- "bytes": 76699362
+ "bytes": 76699623
 }

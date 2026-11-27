@@ -25,7 +25,7 @@ O QUE FOI VERIFICADO NOS DADOS DE ENTRADA (carga 24-11: 16 arquivos, 1,17 GB, 1.
     quantidade x precoUnitario em 100% das linhas. Por isso total = qtd x preco (calculado aqui) e a coluna
     serve só de conferência (meta.normalizacoes.totalDivergente conta as diferenças; hoje 0).
   * dataCompra sempre válida (2020-12-24 a 2026-11-23); sem linhas duplicadas; sem datas futuras.
-  * modalidade: 5, 6, 7, 3, 99 e 12 (este sem rótulo SIASG conhecido -> "Modalidade 12");
+  * modalidade: 5, 6, 7, 3, 99 e 12 (Credenciamento: compras de 2025-2026, SISPP, sem critério de julgamento);
     esfera: só F/E/M; forma: só SISRP/SISPP; estado: 27 UFs + "EX" (1 linha, compra no exterior -> null).
   * niFornecedor: CNPJ em 99,7% das linhas; o resto são identificadores de estrangeiros ("ESTRANGEIRO",
     "US133326824"...) e 230 linhas com CPF completo de pessoa física, que é mascarado (***.NNN.NNN-**).
@@ -73,7 +73,7 @@ USADAS = ["codigoItemCatalogo", "descricaoItem", "nomePdm", "forma", "modalidade
 
 MODALIDADES = {
     1: "Convite", 2: "Tomada de Preços", 3: "Concorrência", 4: "Concorrência Internacional", 5: "Pregão",
-    6: "Dispensa de Licitação", 7: "Inexigibilidade de Licitação", 20: "Concurso",
+    6: "Dispensa de Licitação", 7: "Inexigibilidade de Licitação", 12: "Credenciamento", 20: "Concurso",
     22: "Tomada de Preços por Técnica e Preço", 33: "Concorrência por Técnica e Preço",
     44: "Concorrência Internacional por Técnica e Preço", 99: "RDC",
 }
