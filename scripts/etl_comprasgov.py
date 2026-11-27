@@ -6,7 +6,8 @@ Uso:
     python3 scripts/etl_comprasgov.py <input_dir> <output_dir> [--shards N] [--jobs J] [--tmp DIR]
 
     <input_dir>   pasta com os arquivos classe_*.csv (os Relatorio_Integridade__*.csv são ignorados)
-    <output_dir>  normalmente public/data  ->  meta.json, catalogo.json.gz e cg/<S>.json.gz (S = codigo % N)
+    <output_dir>  normalmente public/data  ->  meta.json, catalogo.json.gz, catalogo-top.json.gz (os N_TOPO itens
+                  de mais registros, no formato e na ordem do catálogo) e cg/<S>.json.gz (S = codigo % N)
 
 Só usa a biblioteca padrão. Os CSVs são dados baixados (não confiáveis): rode com "python3 -I".
 A saída é reprodutível (gzip sem mtime, ordenação que só depende do conteúdo); o único campo variável é
@@ -29,12 +30,26 @@ O QUE FOI VERIFICADO NOS DADOS DE ENTRADA (carga 24-11: 16 arquivos, 1,17 GB, 1.
     esfera: só F/E/M; forma: só SISRP/SISPP; estado: 27 UFs + "EX" (1 linha, compra no exterior -> null).
   * niFornecedor: CNPJ em 99,7% das linhas; o resto são identificadores de estrangeiros ("ESTRANGEIRO",
     "US133326824"...) e 230 linhas com CPF completo de pessoa física, que é mascarado (***.NNN.NNN-**).
+  * nomeFornecedor: 4.452 linhas (4.450 das mantidas, 619 nomes) trazem um CPF junto do nome ("NOME + CPF", como
+    no nome empresarial de microempreendedor individual), 4.316 só com os 11 dígitos e 136 com a pontuação; todas
+    têm CNPJ em niFornecedor, e todo número de 11 dígitos nos nomes passa nos dígitos verificadores de CPF.
+    Também é mascarado.
+  * marca: 9.708 linhas trazem um número de 11 dígitos, em geral o registro do produto na Anvisa ("RMS: ...").
+    77 delas (33 números) passam nos dígitos verificadores de CPF, a proporção esperada por acaso (1%), todas de
+    fornecedores com CNPJ; como só pelos dígitos não se distingue um registro de um CPF, também são mascaradas.
+  * Unidade de Fornecimento: 549 grafias; a unidade "dose" vem escrita de três jeitos, às vezes no mesmo item:
+    DOSE(S) (3.289 linhas), DOSES (2.457) e (DOSES) (861). No BPS (amostra de 9 mil linhas) só aparece DOSES.
 
 NORMALIZAÇÕES APLICADAS (além do mapeamento do contrato de dados)
   * textos: espaços/TAB/NBSP colapsados, caracteres de controle removidos, aspas dobradas reduzidas;
   * instituicao, fornecedor, idForn, fabricante, municipio e unidade em maiúsculas (junta "medix"/"MEDIX");
   * fabricante = null quando a marca é vazia, só pontuação (".", "-", "***") ou null/nan/none/na/n/a;
-  * uf fora das 27 UFs -> null; CPF de pessoa física mascarado (ver MASCARAR_CPF).
+  * unidade: DOSE, DOSES, DOSE(S) e (DOSES) saem como DOSES, a mesma regra que api/bps.js aplica à unidade do BPS
+    (meta.normalizacoes.unidadeDose conta as linhas em que a grafia foi trocada);
+  * uf fora das 27 UFs -> null; CPF de pessoa física mascarado no id e no nome do fornecedor (ver MASCARAR_CPF;
+    linhas contadas em meta.normalizacoes: cpfMascarados e cpfNoNomeFornecedor). A marca NÃO é mascarada: os
+    números de 11 dígitos que aparecem nela são registros da Anvisa ("EMS REG: 1023507...") e os 77 que passam
+    nos dígitos verificadores do CPF passam por acaso (1%, a taxa esperada); nenhum é de pessoa física.
 
 LINHAS DESCARTADAS (contadas em meta.ignoradas, nesta ordem de teste)
   csvInvalido, colunasInvalidas, codigoInvalido, dataInvalida, valorNaoNumerico, precoNaoPositivo, qtdNaoPositiva
@@ -59,7 +74,8 @@ from multiprocessing import Pool
 
 N_SHARDS = 2048          # S = codigo % N
 N_GRUPOS = 64            # baldes temporários (cada um reúne N/64 shards); só afeta o uso de memória
-MASCARAR_CPF = True      # CPF de fornecedor pessoa física vira "***.NNN.NNN-**" (dado pessoal, LGPD)
+N_TOPO = 5000            # itens de catalogo-top.json.gz (os de mais registros), que o painel baixa antes do catálogo
+MASCARAR_CPF = True      # CPF vira "***.NNN.NNN-**" (dado pessoal, LGPD): id e nome do fornecedor
 
 # Colunas de cada ROW (contrato compartilhado com o front-end e com /api/bps)
 COLUNAS = ["data", "uf", "municipio", "instituicao", "idInst", "fornecedor", "idForn", "fabricante",
@@ -90,6 +106,13 @@ _NUM_BR = re.compile(r"-?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d+)?\Z")
 _DATA = re.compile(r"(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?\Z")
 _ASPAS = re.compile(r'"{2,}')
 _ALFANUM = re.compile(r"[^\W_]")
+# As duas expressões abaixo são as mesmas de api/bps.js (RE_DOSE e RE_CPF): as duas fontes seguem uma regra só.
+# Unidade "dose": DOSE, DOSES, DOSE(S) e (DOSES) são a mesma unidade; só a palavra inteira ("MONODOSE" e "MCG/DOSE"
+# ficam como estão), no texto já em maiúsculas e com os espaços colapsados.
+_DOSE = re.compile(r"(?<!\S)\(?DOSE(?:\(S\)|S)?\)?(?!\S)")
+# CPF embutido em um texto: 11 dígitos, com ou sem a pontuação usual, que não sejam parte de um número maior
+# (um CNPJ nunca casa). re.ASCII porque em JavaScript \d só vale para 0-9.
+_CPF = re.compile(r"(?<!\d)(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})(?!\d)", re.ASCII)
 # controles viram espaço; hífen opcional e caracteres de largura zero somem
 _LIXO = {c: " " for c in list(range(0x20)) + list(range(0x7F, 0xA0))}
 _LIXO.update({c: None for c in (0xAD, 0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0x2060, 0xFEFF)})
@@ -130,6 +153,15 @@ def cpf_valido(s):
     return v1 == d[9] and v2 == d[10]
 
 
+def _mascara_cpf(m):
+    return "***.%s.%s-**" % (m.group(2), m.group(3)) if cpf_valido("".join(m.groups())) else m.group(0)
+
+
+def sem_cpf(s):
+    """Mascara os CPFs embutidos no texto: só os 11 dígitos que passam nos dígitos verificadores."""
+    return _CPF.sub(_mascara_cpf, s) if MASCARAR_CPF else s
+
+
 def num_br(s):
     """'7.000,00' -> Decimal('7000.00'); None quando ausente ou fora do formato pt-BR."""
     if _NUM_BR.match(s):
@@ -158,7 +190,8 @@ class Memo(dict):
         return v
 
 
-# Cada função abaixo devolve o FRAGMENTO JSON pronto do campo.
+# Cada função abaixo devolve o FRAGMENTO JSON pronto do campo. f_fornecedor e f_unidade devolvem o par
+# (fragmento, o texto foi normalizado?), para a contagem de meta.normalizacoes.
 
 def f_texto(s):                      # string obrigatória no contrato ("" se faltar)
     s = limpa(s)
@@ -170,9 +203,27 @@ def f_texto_ou_null(s):
     return "null" if ausente(s) else _json(maiusc(s))
 
 
-def f_fabricante(s):
+def f_fornecedor(s):                 # nome do fornecedor, sem o CPF de quem se registrou como "NOME + CPF"
+    s = limpa(s)
+    if ausente(s):
+        return '""', False
+    s = maiusc(s)
+    t = sem_cpf(s)
+    return _json(t), t != s
+
+
+def f_fabricante(s):                 # marca; sem máscara de CPF (ver o cabeçalho)
     s = maiusc(limpa(s))
     return "null" if s in SEM_VALOR or not _ALFANUM.search(s) else _json(s)
+
+
+def f_unidade(s):                    # unidade de fornecimento, com a "dose" em uma grafia só (ver _DOSE)
+    s = limpa(s)
+    if ausente(s):
+        return '""', False
+    s = maiusc(s)
+    t = _DOSE.sub("DOSES", s)
+    return _json(t), t != s
 
 
 def f_uf(s):
@@ -260,14 +311,14 @@ def processa_arquivo(tarefa):
     indice, caminho, tmp, n_shards, n_grupos = tarefa
     decimal.getcontext().prec = 60
     ign = dict.fromkeys(MOTIVOS, 0)
-    norm = {"cpfMascarados": 0, "ufForaDoBrasil": 0, "fabricanteAusente": 0, "municipioAusente": 0,
-            "totalDivergente": 0}
+    norm = {"cpfMascarados": 0, "cpfNoNomeFornecedor": 0, "ufForaDoBrasil": 0,
+            "fabricanteAusente": 0, "municipioAusente": 0, "unidadeDose": 0, "totalDivergente": 0}
     c_mod, c_esf, c_tipo, c_cod_mod = Counter(), Counter(), Counter(), Counter()
     descricoes = {}                                   # (codigo, descrição bruta) -> nº de linhas mantidas
     m_cod, m_data = Memo(f_codigo), Memo(f_data)
     m_qtd, m_preco = Memo(f_qtd), Memo(f_preco)
     m_uf, m_mun, m_inst, m_idinst = Memo(f_uf), Memo(f_texto_ou_null), Memo(f_texto), Memo(f_id)
-    m_forn, m_idforn, m_fab, m_unid = Memo(f_texto), Memo(f_id_fornecedor), Memo(f_fabricante), Memo(f_texto)
+    m_forn, m_idforn, m_fab, m_unid = Memo(f_fornecedor), Memo(f_id_fornecedor), Memo(f_fabricante), Memo(f_unidade)
     m_mod, m_esf, m_tipo = Memo(f_modalidade), Memo(f_esfera), Memo(f_tipo)
     lidas = mantidas = 0
     data_min, data_max = '"9999"', '"0000"'
@@ -332,13 +383,14 @@ def processa_arquivo(tarefa):
                 j_uf = m_uf[p[i_uf]]
                 j_mun = m_mun[p[i_mun]]
                 j_fab = m_fab[p[i_marca]]
+                j_forn, cpf_no_nome = m_forn[p[i_forn]]
                 j_forn_id = m_idforn[p[i_ni]]
                 j_mod = m_mod[p[i_mod]]
                 j_esf = m_esf[p[i_esf]]
                 j_tipo = m_tipo[p[i_forma]]
-                j_unid = m_unid[p[i_unid]]
+                j_unid, dose = m_unid[p[i_unid]]
                 if j_unid == '""':
-                    j_unid = m_unid[p[i_unid2]]
+                    j_unid, dose = m_unid[p[i_unid2]]
                 if j_uf == "null" and not ausente(p[i_uf].strip()):
                     norm["ufForaDoBrasil"] += 1
                 if j_mun == "null":
@@ -347,6 +399,10 @@ def processa_arquivo(tarefa):
                     norm["fabricanteAusente"] += 1
                 if j_forn_id.startswith('"***.'):
                     norm["cpfMascarados"] += 1
+                if cpf_no_nome:
+                    norm["cpfNoNomeFornecedor"] += 1
+                if dose:
+                    norm["unidadeDose"] += 1
                 c_mod[j_mod] += 1
                 c_cod_mod[p[i_mod]] += 1
                 c_esf[j_esf] += 1
@@ -363,7 +419,7 @@ def processa_arquivo(tarefa):
                 mantidas += 1
                 baldes[cod % n_shards % n_grupos].write(
                     "%d\t[%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,null]\n" % (
-                        cod, data, j_uf, j_mun, m_inst[p[i_nuasg]], m_idinst[p[i_uasg]], m_forn[p[i_forn]],
+                        cod, data, j_uf, j_mun, m_inst[p[i_nuasg]], m_idinst[p[i_uasg]], j_forn,
                         j_forn_id, j_fab, j_unid, j_qtd, j_preco, j_total, j_mod, j_esf, j_tipo))
     finally:
         for b in baldes:
@@ -426,7 +482,8 @@ def grava_grupo(tarefa):
 # ----------------------------------------------------------------------------- principal
 
 def main():
-    ap = argparse.ArgumentParser(description="ETL Compras.gov.br -> public/data (meta.json, catalogo.json.gz, cg/<S>.json.gz)")
+    ap = argparse.ArgumentParser(description="ETL Compras.gov.br -> public/data (meta.json, catalogo.json.gz, "
+                                             "catalogo-top.json.gz, cg/<S>.json.gz)")
     ap.add_argument("input_dir", help="pasta com os arquivos classe_*.csv")
     ap.add_argument("output_dir", help="pasta de saída (public/data)")
     ap.add_argument("--shards", type=int, default=N_SHARDS, help="número de shards N (padrão %d)" % N_SHARDS)
@@ -509,6 +566,11 @@ def main():
 
     gz_cat = gzip_bytes(_json(catalogo).encode("utf-8"))
     grava(os.path.join(a.output_dir, "catalogo.json.gz"), gz_cat)
+    # o começo do catálogo (itens de mais registros) em um arquivo pequeno: a busca do painel já funciona com ele
+    # enquanto o catálogo inteiro é baixado
+    topo = catalogo[:N_TOPO]
+    gz_topo = gzip_bytes(_json(topo).encode("utf-8"))
+    grava(os.path.join(a.output_dir, "catalogo-top.json.gz"), gz_topo)
 
     tamanhos = sorted(r[4] for r in resumo)
     maior = max(resumo, key=lambda r: r[4])
@@ -520,6 +582,7 @@ def main():
         "shards": a.shards,
         "linhas": mantidas,
         "itens": len(catalogo),
+        "catalogoTop": len(topo),
         "dataMin": min(r["dataMin"] for r in partes if r["mantidas"]) if mantidas else None,
         "dataMax": max(r["dataMax"] for r in partes if r["mantidas"]) if mantidas else None,
         "geradoEm": agora.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -531,13 +594,13 @@ def main():
         "esferas": rotulos("esferas"),
         "tipos": rotulos("tipos"),
         "arquivosEntrada": len(arquivos),
-        "arquivos": len(resumo) + 2,
+        "arquivos": len(resumo) + 3,
         "shardsGravados": len(resumo),
         "maiorShard": {"shard": maior[0], "bytes": maior[4], "linhas": maior[2]},
         "bytesCatalogo": len(gz_cat),
         "bytes": 0,
     }
-    fixo = sum(tamanhos) + len(gz_cat)
+    fixo = sum(tamanhos) + len(gz_cat) + len(gz_topo)
     for _ in range(5):                # "bytes" inclui o próprio meta.json: itera até estabilizar
         texto = json.dumps(meta, ensure_ascii=False, indent=1) + "\n"
         total = fixo + len(texto.encode("utf-8"))
@@ -547,9 +610,9 @@ def main():
     grava(os.path.join(a.output_dir, "meta.json"), texto.encode("utf-8"))
 
     # resumo para quem roda o ETL
-    print("shards (N): %d   gravados: %d   arquivos: %d" % (a.shards, len(resumo), len(resumo) + 2))
-    print("bytes em %s: %d (%.2f MB)   catálogo: %d bytes, %d itens" % (
-        a.output_dir, meta["bytes"], meta["bytes"] / 1e6, len(gz_cat), len(catalogo)))
+    print("shards (N): %d   gravados: %d   arquivos: %d" % (a.shards, len(resumo), meta["arquivos"]))
+    print("bytes em %s: %d (%.2f MB)   catálogo: %d bytes, %d itens   topo do catálogo: %d bytes, %d itens" % (
+        a.output_dir, meta["bytes"], meta["bytes"] / 1e6, len(gz_cat), len(catalogo), len(gz_topo), len(topo)))
     print("shard gz: maior %d bytes (shard %d, %d linhas), mediana %d, menor %d   JSON descomprimido: %.1f MB" % (
         maior[4], maior[0], maior[2], tamanhos[len(tamanhos) // 2], tamanhos[0], sum(r[3] for r in resumo) / 1e6))
     print("linhas: lidas %d, mantidas %d, ignoradas %d %s" % (lidas, mantidas, sum(ignoradas.values()), ignoradas))

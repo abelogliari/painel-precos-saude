@@ -3,9 +3,10 @@
  "shards": 2048,
  "linhas": 1856035,
  "itens": 44606,
+ "catalogoTop": 5000,
  "dataMin": "2020-12-24",
  "dataMax": "2026-11-23",
- "geradoEm": "2026-11-27T16:48:26Z",
+ "geradoEm": "2026-11-27T22:35:33Z",
  "colunas": [
   "data",
   "uf",
@@ -36,9 +37,11 @@
  },
  "normalizacoes": {
   "cpfMascarados": 230,
+  "cpfNoNomeFornecedor": 4450,
   "ufForaDoBrasil": 1,
   "fabricanteAusente": 7220,
   "municipioAusente": 6932,
+  "unidadeDose": 4150,
   "totalDivergente": 0
  },
  "modalidades": {
@@ -59,13 +62,13 @@
   "Compra direta (SISPP)": 401897
  },
  "arquivosEntrada": 16,
- "arquivos": 2050,
+ "arquivos": 2051,
  "shardsGravados": 2048,
  "maiorShard": {
   "shard": 188,
-  "bytes": 217467,
+  "bytes": 217490,
   "linhas": 5690
  },
  "bytesCatalogo": 2063624,
- "bytes": 76699623
+ "bytes": 76935713
 }

@@ -54,8 +54,9 @@ const num = (v) => {
 };
 
 // "DOSE", "DOSES", "DOSE(S)" e "(DOSES)" são a mesma unidade escrita de quatro jeitos (o BPS usa
-// "DOSES", o Compras.gov.br usa os outros três): sai sempre "DOSES", como no ETL. Só a palavra
-// inteira é trocada; "DOSEADOR", "MONODOSE" ou "MCG/DOSE" ficam como estão.
+// "DOSES"; o Compras.gov.br, "DOSES", "DOSE(S)" e "(DOSES)"): sai sempre "DOSES". Só a palavra
+// inteira é trocada; "DOSEADOR", "MONODOSE" ou "MCG/DOSE" ficam como estão. A expressão é a mesma
+// do ETL (_DOSE em scripts/etl_comprasgov.py), para as duas fontes darem a mesma unidade.
 const RE_DOSE = /(?<!\S)\(?DOSE(?:\(S\)|S)?\)?(?!\S)/g;
 
 // Unidade de fornecimento no mesmo formato do Compras.gov.br, para que as duas fontes
@@ -73,8 +74,10 @@ function unidade(r) {
 }
 
 // CPF embutido no nome do fornecedor (microempreendedor registrado como "NOME + CPF") é dado
-// pessoal: vira "***.NNN.NNN-**", como no ETL do Compras.gov.br. Só quando os 11 dígitos passam
-// nos dígitos verificadores; CNPJ (14 dígitos) e qualquer outro número ficam como estão.
+// pessoal: vira "***.NNN.NNN-**", a mesma regra (e a mesma expressão, _CPF) que o ETL do
+// Compras.gov.br aplica ao nome do fornecedor. Só quando os 11 dígitos passam nos dígitos
+// verificadores; CNPJ (14 dígitos) e qualquer outro número ficam como estão. O nome do fabricante
+// não é mascarado: os números de 11 dígitos que aparecem nele são registros da Anvisa.
 const RE_CPF = /(?<!\d)(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})(?!\d)/g;
 
 function cpfValido(s) {
