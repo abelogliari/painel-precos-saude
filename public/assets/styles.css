@@ -106,12 +106,13 @@ main:focus { outline: none; }
 /* ---------- Filtros ---------- */
 .filtros { margin-top: 16px; padding: 16px 20px; }
 .filtros__topo {
-  display: flex; align-items: flex-end; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between;
   flex-wrap: wrap; gap: 10px 24px; margin-bottom: 12px;
 }
 .sec-titulo { margin: 0; font-size: 1.02rem; font-weight: 700; color: var(--azul-escuro); }
 
-.origem { min-width: 0; margin: 0; padding: 0; border: 0; }
+.origem { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-width: 0; max-width: 100%; }
+.origem .campo__rotulo { margin: 0; }
 .seg {
   display: inline-flex; max-width: 100%; padding: 2px;
   border: 1px solid var(--azul); border-radius: 100em; background: #fff;
@@ -466,7 +467,7 @@ th[aria-sort="descending"] .seta { opacity: 1; border-bottom: 0; border-top: 6px
   .filtros { padding: 14px 12px; }
   .obrig { grid-template-columns: minmax(0, 1fr); }
   .origem { width: 100%; }
-  .seg { display: flex; }
+  .seg { display: flex; flex: 1 1 100%; }
   .seg__txt { padding: 0 8px; }
   .vazio { padding: 18px 14px; }
   .facetas { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }

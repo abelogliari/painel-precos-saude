@@ -41,8 +41,8 @@
     <section class="card filtros" id="filtros" aria-label="Filtros">
       <div class="filtros__topo">
         <h2 class="sec-titulo" id="t-obrig">Filtros obrigatórios</h2>
-        <fieldset class="origem" id="fonte">
-          <legend class="campo__rotulo">Fonte dos dados</legend>
+        <div class="origem" id="fonte" role="radiogroup" aria-labelledby="fonte-rotulo">
+          <span class="campo__rotulo" id="fonte-rotulo">Fonte dos dados</span>
           <div class="seg">
             <label class="seg__op">
               <input type="radio" name="fonte" value="bps">
@@ -57,7 +57,7 @@
               <span class="seg__txt"><i class="dot dot--bps" aria-hidden="true"></i><i class="dot dot--cg dot--junto" aria-hidden="true"></i>Ambas</span>
             </label>
           </div>
-        </fieldset>
+        </div>
       </div>
 
       <div class="obrig" role="group" aria-labelledby="t-obrig">
