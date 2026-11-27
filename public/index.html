@@ -57,9 +57,10 @@
 
         <div class="campo campo--unidade">
           <label class="campo__rotulo" for="unidade">Unidade de fornecimento</label>
-          <select id="unidade" class="ctrl" disabled>
+          <select id="unidade" class="ctrl" aria-describedby="unidade-ajuda" disabled>
             <option value="*">Todas as unidades</option>
           </select>
+          <p class="campo__ajuda" id="unidade-ajuda">Registros de cada fonte no período, por unidade.</p>
         </div>
 
         <fieldset class="campo campo--periodo" id="periodo">

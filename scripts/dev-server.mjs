@@ -75,8 +75,9 @@ async function estatico(pathname) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   try {
+    // "//caminho" seria lido como outro host (e "//" nem é uma URL válida): normaliza antes.
+    const url = new URL(String(req.url || '/').replace(/^\/+/, '/'), 'http://localhost');
     if (url.pathname === '/api/bps') {
       const r = await api(url);
       res.writeHead(r.status, {
@@ -99,7 +100,8 @@ const server = http.createServer(async (req, res) => {
     });
     res.end(achado.body);
   } catch (e) {
-    res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
+    const invalida = e instanceof URIError || (e && e.code === 'ERR_INVALID_URL');
+    res.writeHead(invalida ? 400 : 500, { 'content-type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ erro: String((e && e.message) || e) }));
   }
 });

@@ -634,14 +634,23 @@
 
   /* ============================== Unidade de fornecimento ============================== */
 
-  const porFonte = (n) => NOME_FONTE[0] + ' ' + int(n[0]) + ' · ' + NOME_FONTE[1] + ' ' + int(n[1]);
+  /** Nº de registros de uma fonte numa opção de unidade: reticências enquanto ela carrega e
+      "indisponível" se ela falhou sem trazer nenhum registro (um zero ali enganaria). */
+  function contagem(f, n) {
+    const d = dadosDaFonte(f);
+    if (d.estado === 'carregando') return '…';
+    if ((d.estado === 'erro' || d.estado === 'indisponivel') && !d.rows.length) return 'indisponível';
+    return int(n);
+  }
+  /** "BPS 51 · Compras.gov.br 369" */
+  const porFonte = (n) => NOME_FONTE[0] + ' ' + contagem(0, n[0]) + ' · ' + NOME_FONTE[1] + ' ' + contagem(1, n[1]);
 
   /** Lista única com as unidades das duas fontes; cada opção informa os registros de cada fonte no período. */
   let assinaturaUnidades = '';
   function renderUnidades() {
     const sel = el.unidade, us = V.unidades, efetiva = V.unidade;
     const todas = [V.base[0].length, V.base[1].length];
-    let assinatura = efetiva + '\n' + (S.item ? todas.join('\t') : '');
+    let assinatura = efetiva + '\n' + (S.item ? todas.join('\t') + '\t' + S.bps.estado + '\t' + S.cg.estado : '');
     for (let i = 0; i < us.length; i++) assinatura += '\n' + us[i].k + '\t' + us[i].n.join('\t');
     sel.disabled = !S.item;
     if (assinatura === assinaturaUnidades) return;
@@ -786,7 +795,8 @@
     p.pgInfo.textContent = n ? int(a + 1) + '–' + int(b) + ' de ' + int(n) : '0 de 0';
     p.pg.primeira.disabled = p.pg.anterior.disabled = pg === 0;
     p.pg.proxima.disabled = p.pg.ultima.disabled = pg >= paginas - 1;
-    p.resumo.innerHTML = SELO[f] + (n ? '<span>' + registros(n) + (n === 1 ? ' encontrado' : ' encontrados') + (carregando(f) ? ' até agora' : '') + '</span>' : '');
+    const parcial = carregando(f) ? ' até agora' : dadosDaFonte(f).estado === 'erro' ? ' (consulta incompleta)' : '';
+    p.resumo.innerHTML = SELO[f] + (n ? '<span>' + registros(n) + (n === 1 ? ' encontrado' : ' encontrados') + parcial + '</span>' : '');
   }
 
   /* ============================== Exportação CSV ============================== */
@@ -1302,17 +1312,18 @@
     if (!S.item) { el.situacao.hidden = true; statusHtml = ''; el.status.innerHTML = ''; return; }
     el.situacao.hidden = false;
     const b = S.bps, c = S.cg, nb = V.base[0].length, nc = V.base[1].length;
+    const falha = (texto) => '<span class="st__falha">' + texto + '</span>';     // os detalhes ficam na aba da fonte
     let tb, tc;
     if (b.estado === 'carregando') tb = (b.rows.length ? registros(b.rows.length) + ' carregados…' : 'consultando…') + GIRO;
-    else if (b.estado === 'erro') tb = b.rows.length ? 'consulta interrompida (' + registros(b.rows.length) + ' carregados)' : 'consulta não concluída';
+    else if (b.estado === 'erro') tb = falha(b.rows.length ? 'consulta interrompida (' + registros(b.rows.length) + ' carregados)' : 'consulta não concluída');
     else tb = nb ? registros(nb) + ' no período' : 'nenhum registro no período';
     if (c.estado === 'carregando') tc = 'carregando…' + GIRO;
-    else if (c.estado === 'erro') tc = 'dados não carregados';
-    else if (c.estado === 'indisponivel') tc = 'extração indisponível no momento';
+    else if (c.estado === 'erro') tc = falha('dados não carregados');
+    else if (c.estado === 'indisponivel') tc = falha('extração indisponível no momento');
     else if (!c.rows.length) tc = 'material sem registros na extração';
     else tc = (nc ? registros(nc) + ' no período' : 'nenhum registro no período') + ' (' + int(c.rows.length) + ' na extração)';
     const h = '<span class="st"><i class="dot dot--bps" aria-hidden="true"></i><b>BPS:</b> ' + tb + '</span>' +
-      '<span class="st__sep" aria-hidden="true">·</span>' +
+      '<span class="st__sep"> · </span>' +
       '<span class="st"><i class="dot dot--cg" aria-hidden="true"></i><b>Compras.gov.br:</b> ' + tc + '</span>';
     if (h !== statusHtml) { statusHtml = h; el.status.innerHTML = h; }
     el.progresso.hidden = !(carregando(0) || carregando(1));

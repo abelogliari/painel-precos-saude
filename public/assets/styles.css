@@ -257,12 +257,15 @@ select.ctrl:disabled { cursor: not-allowed; }
 
 /* ---------- Situação das consultas ---------- */
 .situacao { margin-top: 12px; }
-.situacao__linha { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-height: 22px; color: var(--texto-2); font-size: .84rem; }
-.st { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.situacao__linha { min-height: 22px; color: var(--texto-2); font-size: .84rem; line-height: 1.6; }
+.st { white-space: nowrap; }
+.st .dot { margin-right: 6px; }
 .st b { color: var(--texto); font-weight: 600; }
-.st__sep { color: var(--borda-ctrl); font-weight: 700; }
+.st .giro { margin-left: 6px; vertical-align: -1px; }
+.st__falha { color: #B01B05; font-weight: 600; }
+.st__sep { margin: 0 4px; color: var(--borda-ctrl); font-weight: 700; white-space: pre; }
 .giro {
-  flex: none; width: 12px; height: 12px; border-radius: 50%;
+  display: inline-block; flex: none; width: 12px; height: 12px; border-radius: 50%;
   border: 2px solid var(--cinza-3); border-top-color: var(--azul); animation: giro .7s linear infinite;
 }
 .progresso { height: 3px; margin-top: 6px; overflow: hidden; border-radius: 2px; background: var(--cinza-2); }
@@ -304,7 +307,7 @@ select.ctrl:disabled { cursor: not-allowed; }
   margin-bottom: -1px; padding: 11px 18px 8px;
   border: 0; border-bottom: 4px solid transparent; border-radius: var(--raio) var(--raio) 0 0; background: none;
   color: var(--texto-2); font-size: .98rem; font-weight: 600; line-height: 1.3; cursor: pointer;
-  transition: background-color .15s, color .15s, border-color .15s;
+  -webkit-tap-highlight-color: transparent;
 }
 .aba--cg { --c-fonte: var(--c-cg); --c-fonte-fundo: var(--c-cg-fundo); --c-fonte-texto: var(--c-cg-texto); }
 .aba:hover { background: var(--cinza-2); color: var(--texto); }
@@ -322,8 +325,8 @@ select.ctrl:disabled { cursor: not-allowed; }
 .aba__aviso { flex: none; width: 15px; height: 15px; color: #B01B05; }
 
 /* ---------- Painel de cada aba (indicadores + tabela de uma fonte) ---------- */
-.painel { --c-fonte: var(--c-bps); --c-fonte-fundo: var(--c-bps-fundo); --c-fonte-texto: var(--c-bps-texto); padding-top: 12px; }
-.painel--cg { --c-fonte: var(--c-cg); --c-fonte-fundo: var(--c-cg-fundo); --c-fonte-texto: var(--c-cg-texto); }
+.painel { --c-fonte: var(--c-bps); padding-top: 12px; }
+.painel--cg { --c-fonte: var(--c-cg); }
 .painel:focus-visible { outline-offset: 4px; border-radius: var(--raio); }
 
 .kpis { display: grid; gap: 12px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
@@ -459,6 +462,7 @@ th[aria-sort="descending"] .seta { opacity: 1; border-bottom: 0; border-top: 6px
   .filtros { padding: 14px 12px; }
   .obrig { grid-template-columns: minmax(0, 1fr); }
   .sec-titulo small { display: block; margin: 2px 0 0; white-space: normal; }
+  .st { display: block; white-space: normal; }
   .st__sep { display: none; }
   .vazio { padding: 18px 14px; }
   .facetas { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
