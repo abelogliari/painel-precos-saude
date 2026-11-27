@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Painel de Preços da Saúde</title>
+  <meta name="description" content="Preços praticados em compras públicas de saúde por item do CATMAT: Banco de Preços em Saúde (BPS) e Compras.gov.br em um único painel.">
+  <meta name="theme-color" content="#071D41">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23071D41'/%3E%3Cpath d='M7 22l5-7 4 4 3-5 6 8' fill='none' stroke='%23FFCD07' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='24' cy='9' r='3' fill='%23ffffff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/styles.css">
+  <link rel="stylesheet" href="assets/charts.css">
+  <script defer src="assets/vendor/chart.umd.min.js"></script>
+  <script defer src="assets/charts.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body>
+  <a class="pular" href="#conteudo">Ir para o conteúdo</a>
+
+  <header class="topo">
+    <div class="wrap topo__in">
+      <div class="topo__marca">
+        <h1 class="topo__titulo">Painel de Preços da Saúde</h1>
+        <p class="topo__sub">Preços praticados em compras públicas — BPS e Compras.gov.br</p>
+      </div>
+      <div class="topo__acoes">
+        <button type="button" class="btn btn--contorno-claro" id="btn-info" aria-haspopup="dialog" aria-controls="modal-info">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1.3" fill="currentColor"/></svg>
+          Informações
+        </button>
+        <button type="button" class="btn btn--claro" id="btn-exportar" disabled title="Selecione um material para exportar os dados">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Exportar
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="conteudo" class="wrap" tabindex="-1">
+
+    <!-- ===================== FILTROS ===================== -->
+    <section class="card filtros" id="filtros" aria-label="Filtros">
+      <div class="filtros__topo">
+        <h2 class="sec-titulo" id="t-obrig">Filtros obrigatórios</h2>
+        <fieldset class="origem" id="fonte">
+          <legend class="campo__rotulo">Fonte dos dados</legend>
+          <div class="seg">
+            <label class="seg__op">
+              <input type="radio" name="fonte" value="bps">
+              <span class="seg__txt"><i class="dot dot--bps" aria-hidden="true"></i>BPS</span>
+            </label>
+            <label class="seg__op">
+              <input type="radio" name="fonte" value="cg">
+              <span class="seg__txt"><i class="dot dot--cg" aria-hidden="true"></i>Compras.gov.br</span>
+            </label>
+            <label class="seg__op">
+              <input type="radio" name="fonte" value="ambas" checked>
+              <span class="seg__txt"><i class="dot dot--bps" aria-hidden="true"></i><i class="dot dot--cg dot--junto" aria-hidden="true"></i>Ambas</span>
+            </label>
+          </div>
+        </fieldset>
+      </div>
+
+      <div class="obrig" role="group" aria-labelledby="t-obrig">
+        <div class="campo campo--item">
+          <label class="campo__rotulo" for="item-input">Material (CATMAT)</label>
+          <div class="combo" id="combo">
+            <svg class="combo__lupa" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 15.5L20 20" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+            <input id="item-input" class="ctrl combo__input" type="text" role="combobox"
+                   aria-autocomplete="list" aria-expanded="false" aria-controls="item-lista" aria-haspopup="listbox"
+                   aria-describedby="item-ajuda" autocomplete="off" autocapitalize="off" spellcheck="false"
+                   placeholder="Digite o código ou a descrição (ex.: dipirona 500 mg)">
+            <button type="button" class="combo__limpar" id="item-limpar" aria-label="Limpar o material selecionado" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+            </button>
+            <ul id="item-lista" class="combo__lista" role="listbox" aria-label="Materiais encontrados" hidden></ul>
+          </div>
+          <p class="campo__ajuda" id="item-ajuda">Busque por código CATMAT ou por palavras da descrição.</p>
+        </div>
+
+        <div class="campo campo--unidade">
+          <label class="campo__rotulo" for="unidade">Unidade de fornecimento</label>
+          <select id="unidade" class="ctrl" disabled>
+            <option value="*">Todas as unidades</option>
+          </select>
+        </div>
+
+        <fieldset class="campo campo--periodo" id="periodo">
+          <legend class="campo__rotulo">Período da compra</legend>
+          <div class="periodo">
+            <div class="periodo__c">
+              <label class="periodo__rotulo" for="inicio">Início</label>
+              <input type="date" id="inicio" class="ctrl" min="1990-01-01" max="2100-12-31" aria-describedby="periodo-erro">
+            </div>
+            <div class="periodo__c">
+              <label class="periodo__rotulo" for="fim">Término</label>
+              <input type="date" id="fim" class="ctrl" min="1990-01-01" max="2100-12-31" aria-describedby="periodo-erro">
+            </div>
+          </div>
+          <p class="campo__erro" id="periodo-erro" role="alert" hidden></p>
+        </fieldset>
+      </div>
+
+      <div class="mais">
+        <h2 class="mais__titulo">
+          <button type="button" class="mais__toggle" id="mais-toggle" aria-expanded="false" aria-controls="mais-filtros">
+            <span>Mais filtros</span>
+            <span class="mais__icone" aria-hidden="true"></span>
+            <span class="contador" id="mais-contagem" hidden></span>
+          </button>
+        </h2>
+        <div class="mais__corpo" id="mais-filtros" hidden>
+          <div class="facetas" id="facetas"></div>
+          <p class="campo__ajuda">As opções de cada filtro consideram os registros do material, da unidade, do período e da fonte selecionados.</p>
+        </div>
+      </div>
+
+      <div class="filtros__rodape">
+        <ul class="tags" id="tags" aria-label="Filtros adicionais ativos"></ul>
+        <button type="button" class="btn btn--secundario" id="limpar">Limpar filtros</button>
+      </div>
+    </section>
+
+    <!-- ===================== SITUAÇÃO DAS CONSULTAS ===================== -->
+    <div class="situacao" id="situacao" hidden>
+      <div class="situacao__linha" id="status" role="status" aria-live="polite"></div>
+      <div class="progresso" id="progresso" hidden aria-hidden="true"><i></i></div>
+      <div class="alertas" id="alertas"></div>
+    </div>
+
+    <!-- ===================== ESTADO INICIAL ===================== -->
+    <section class="card vazio" id="vazio" aria-labelledby="vazio-titulo">
+      <h2 class="vazio__titulo" id="vazio-titulo">Selecione um material para começar</h2>
+      <ol class="vazio__passos">
+        <li>No campo <strong>Material (CATMAT)</strong>, digite o código ou parte da descrição e escolha o item.</li>
+        <li>Confira a <strong>unidade de fornecimento</strong> e o <strong>período</strong> da compra.</li>
+        <li>Escolha a <strong>fonte dos dados</strong> (BPS, Compras.gov.br ou ambas) e refine em <strong>Mais filtros</strong>.</li>
+      </ol>
+      <div class="vazio__freq" id="vazio-freq" hidden>
+        <h3 class="vazio__sub">Itens com mais registros no Compras.gov.br</h3>
+        <ul class="chips" id="chips"></ul>
+      </div>
+      <p class="vazio__nota" id="vazio-nota" hidden></p>
+    </section>
+
+    <!-- ===================== RESULTADOS ===================== -->
+    <div id="resultados" hidden>
+      <h2 class="item-titulo" id="item-titulo"></h2>
+      <p class="so-impressao" id="resumo-impressao"></p>
+
+      <section class="kpis" id="kpis" aria-label="Indicadores do material selecionado">
+        <article class="kpi" data-kpi="min">
+          <h3 class="kpi__rotulo">Preço mínimo</h3>
+          <p class="kpi__valor" id="kpi-min">—</p>
+          <ul class="kpi__fontes" hidden>
+            <li><i class="dot dot--bps" aria-hidden="true"></i><span class="kpi__fn">BPS</span><b data-fonte="0">—</b></li>
+            <li><i class="dot dot--cg" aria-hidden="true"></i><span class="kpi__fn">Compras.gov.br</span><b data-fonte="1">—</b></li>
+          </ul>
+        </article>
+        <article class="kpi" data-kpi="max">
+          <h3 class="kpi__rotulo">Preço máximo</h3>
+          <p class="kpi__valor" id="kpi-max">—</p>
+          <ul class="kpi__fontes" hidden>
+            <li><i class="dot dot--bps" aria-hidden="true"></i><span class="kpi__fn">BPS</span><b data-fonte="0">—</b></li>
+            <li><i class="dot dot--cg" aria-hidden="true"></i><span class="kpi__fn">Compras.gov.br</span><b data-fonte="1">—</b></li>
+          </ul>
+        </article>
+        <article class="kpi" data-kpi="media">
+          <h3 class="kpi__rotulo">Média de preço</h3>
+          <p class="kpi__valor" id="kpi-media">—</p>
+          <ul class="kpi__fontes" hidden>
+            <li><i class="dot dot--bps" aria-hidden="true"></i><span class="kpi__fn">BPS</span><b data-fonte="0">—</b></li>
+            <li><i class="dot dot--cg" aria-hidden="true"></i><span class="kpi__fn">Compras.gov.br</span><b data-fonte="1">—</b></li>
+          </ul>
+        </article>
+        <article class="kpi" data-kpi="mediana">
+          <h3 class="kpi__rotulo">Mediana de preço</h3>
+          <p class="kpi__valor" id="kpi-mediana">—</p>
+          <ul class="kpi__fontes" hidden>
+            <li><i class="dot dot--bps" aria-hidden="true"></i><span class="kpi__fn">BPS</span><b data-fonte="0">—</b></li>
+            <li><i class="dot dot--cg" aria-hidden="true"></i><span class="kpi__fn">Compras.gov.br</span><b data-fonte="1">—</b></li>
+          </ul>
+        </article>
+        <article class="kpi kpi--b" data-kpi="compras">
+          <h3 class="kpi__rotulo">Total de compras registradas</h3>
+          <p class="kpi__valor" id="kpi-compras">—</p>
+          <ul class="kpi__fontes" hidden>
+            <li><i class="dot dot--bps" aria-hidden="true"></i><span class="kpi__fn">BPS</span><b data-fonte="0">—</b></li>
+            <li><i class="dot dot--cg" aria-hidden="true"></i><span class="kpi__fn">Compras.gov.br</span><b data-fonte="1">—</b></li>
+          </ul>
+        </article>
+        <article class="kpi kpi--b" data-kpi="valor">
+          <h3 class="kpi__rotulo">Valor total das compras</h3>
+          <p class="kpi__valor" id="kpi-valor">—</p>
+          <ul class="kpi__fontes" hidden>
+            <li><i class="dot dot--bps" aria-hidden="true"></i><span class="kpi__fn">BPS</span><b data-fonte="0">—</b></li>
+            <li><i class="dot dot--cg" aria-hidden="true"></i><span class="kpi__fn">Compras.gov.br</span><b data-fonte="1">—</b></li>
+          </ul>
+        </article>
+        <article class="kpi kpi--b" data-kpi="itens">
+          <h3 class="kpi__rotulo">Total de itens</h3>
+          <p class="kpi__valor" id="kpi-itens">—</p>
+          <ul class="kpi__fontes" hidden>
+            <li><i class="dot dot--bps" aria-hidden="true"></i><span class="kpi__fn">BPS</span><b data-fonte="0">—</b></li>
+            <li><i class="dot dot--cg" aria-hidden="true"></i><span class="kpi__fn">Compras.gov.br</span><b data-fonte="1">—</b></li>
+          </ul>
+        </article>
+      </section>
+
+      <div class="abas" role="tablist" aria-label="Visualização dos dados">
+        <button type="button" class="aba" role="tab" id="aba-tabela" aria-controls="painel-tabela" aria-selected="true">TABELA</button>
+        <button type="button" class="aba" role="tab" id="aba-graficos" aria-controls="painel-graficos" aria-selected="false" tabindex="-1">GRÁFICOS</button>
+      </div>
+
+      <section class="card painel" id="painel-tabela" role="tabpanel" aria-labelledby="aba-tabela" tabindex="-1">
+        <div class="tabela-topo">
+          <p class="tabela-resumo" id="tabela-resumo"></p>
+          <button type="button" class="btn btn--primario" id="btn-baixar" disabled>
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Baixar dados
+          </button>
+        </div>
+        <div class="tabela-rolagem" id="tabela-rolagem" role="region" aria-label="Tabela de compras registradas" tabindex="0">
+          <table class="tabela" id="tabela">
+            <caption class="sr">Compras registradas do material selecionado, conforme os filtros aplicados</caption>
+            <thead><tr id="tabela-cab"></tr></thead>
+            <tbody id="tabela-corpo"></tbody>
+          </table>
+        </div>
+        <p class="tabela-vazia" id="tabela-vazia" hidden></p>
+        <nav class="paginacao" id="paginacao" aria-label="Paginação da tabela">
+          <button type="button" class="pg" id="pg-primeira" aria-label="Primeira página">«</button>
+          <button type="button" class="pg" id="pg-anterior">‹ Anterior</button>
+          <span class="pg-info" id="pg-info" aria-live="polite">0 de 0</span>
+          <button type="button" class="pg" id="pg-proxima">Próxima ›</button>
+          <button type="button" class="pg" id="pg-ultima" aria-label="Última página">»</button>
+        </nav>
+      </section>
+
+      <section class="painel painel--graficos" id="painel-graficos" role="tabpanel" aria-labelledby="aba-graficos" tabindex="-1" hidden>
+        <div id="charts"></div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="rodape">
+    <div class="wrap">
+      <p id="rodape-fontes"><strong>Fontes:</strong> Banco de Preços em Saúde (BPS) — API de Dados Abertos do Ministério da Saúde, consulta ao vivo. Compras.gov.br — extração de dados pré-processada.</p>
+    </div>
+  </footer>
+
+  <!-- ===================== MODAL: INFORMAÇÕES ===================== -->
+  <dialog class="modal" id="modal-info" aria-labelledby="modal-info-titulo">
+    <div class="modal__cab">
+      <h2 class="modal__titulo" id="modal-info-titulo">Informações do Painel</h2>
+      <button type="button" class="modal__fechar" data-fechar aria-label="Fechar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="modal__corpo" tabindex="0">
+      <h3>Visão geral</h3>
+      <p>O Painel de Preços da Saúde é uma plataforma de pesquisa e acompanhamento de preços praticados nas compras públicas de itens de saúde. Sua consulta aumenta o poder de negociação dos gestores do SUS quanto à aquisição de itens e possibilita a melhor alocação dos recursos públicos em saúde.</p>
+      <p>Esta versão foi construída para consulta rápida e reúne, para o material (CATMAT) selecionado, os registros de <strong>duas fontes públicas</strong>, que podem ser vistas separadamente ou em conjunto.</p>
+
+      <h3>Fontes dos dados</h3>
+      <ul class="modal__fontes">
+        <li>
+          <span class="selo selo--bps"><i class="dot dot--bps" aria-hidden="true"></i>BPS</span>
+          <strong>Banco de Preços em Saúde</strong> — sistema gerido pelo Ministério da Saúde para que os entes federativos registrem informações sobre as compras públicas e privadas de medicamentos e dispositivos médicos. Os dados ali consolidados tornam o BPS referência nacional para a pesquisa e cotação de preços praticados. No painel, o BPS é consultado <strong>ao vivo</strong> na API de Dados Abertos do Ministério da Saúde, para o período selecionado.
+        </li>
+        <li>
+          <span class="selo selo--cg"><i class="dot dot--cg" aria-hidden="true"></i>Compras.gov.br</span>
+          <strong>Compras.gov.br</strong> — compras homologadas no sistema de compras do Governo Federal. No painel é utilizada uma <strong>extração pré-processada</strong><span id="info-cg-extracao"></span>.
+        </li>
+      </ul>
+      <p>As duas fontes são independentes: uma mesma compra pode constar em ambas, e os registros não são deduplicados. Use o seletor <strong>Fonte dos dados</strong> para comparar.</p>
+
+      <h3>O que você encontra no Painel</h3>
+      <p>Através da utilização dos filtros obrigatórios (e adicionais), é possível verificar os valores de preço mínimo, preço máximo, média e mediana de preços praticados por material, que podem balizar as pesquisas de preços para orientar as licitações públicas.</p>
+
+      <h3>Entendendo o Painel</h3>
+      <h4>Valores do resultado de pesquisa</h4>
+      <ul>
+        <li><strong>Preço mínimo:</strong> referente ao menor preço unitário praticado do item selecionado;</li>
+        <li><strong>Preço máximo:</strong> referente ao maior preço unitário praticado do item selecionado;</li>
+        <li><strong>Média de preço:</strong> referente ao valor total de itens dividido pela quantidade de itens comprados (média ponderada pela quantidade);</li>
+        <li><strong>Mediana de preço:</strong> referente ao valor que separa a metade maior e a menor do valor unitário do item adquirido pelas unidades municipais, estaduais e da União;</li>
+        <li><strong>Total de compras registradas:</strong> referente ao somatório de registros de compras (quantidade de compras);</li>
+        <li><strong>Valor total das compras:</strong> referente ao somatório de todos os gastos em compras do item selecionado (soma em valor monetário das compras registradas do item);</li>
+        <li><strong>Total de itens:</strong> referente à quantidade total de itens adquiridos (quantidade total do item em todas as compras registradas).</li>
+      </ul>
+      <p>Quando a fonte selecionada é <strong>Ambas</strong>, cada indicador mostra o valor combinado e, logo abaixo, o valor de cada fonte.</p>
+
+      <h4>Filtros obrigatórios</h4>
+      <ul>
+        <li>Material (código e descrição CATMAT);</li>
+        <li>Unidade de fornecimento;</li>
+        <li>Período da compra (data de início e de término).</li>
+      </ul>
+
+      <h4>Filtros adicionais</h4>
+      <ul>
+        <li>UF (Unidade Federativa) e Município;</li>
+        <li>Esfera (Estadual / Federal / Municipal);</li>
+        <li>Modalidade da compra (Concorrência / Dispensa de Licitação / Inexigibilidade de Licitação / Pregão / Registro de Preços, entre outras);</li>
+        <li>Tipo de compra (Administrativa / Judicial, no BPS; forma da compra, no Compras.gov.br);</li>
+        <li>Fornecedor, Fabricante/Marca e Instituição compradora;</li>
+        <li>Genérico (somente BPS).</li>
+      </ul>
+
+      <h4>Adicional</h4>
+      <p>Após o preenchimento dos filtros, a página oferece os dados em forma de Tabela e Gráficos, sendo possível a extração dos dados filtrados em formato CSV (compatível com Excel) pelo botão <strong>Baixar dados</strong>. É possível desagregar as informações pelas seguintes características:</p>
+      <ul>
+        <li><strong>Geográficas e territoriais:</strong> Unidade da Federação; Município.</li>
+        <li><strong>Temporais:</strong> data da compra.</li>
+        <li><strong>Institucionais:</strong> fabricante; fornecedor; instituição compradora.</li>
+      </ul>
+
+      <h3>Para mais informações, acesse</h3>
+      <ul class="modal__links">
+        <li><a href="https://www.gov.br/saude/pt-br/composicao/sectics/desid/catmat" target="_blank" rel="noopener noreferrer">Catálogo de Materiais (CATMAT) — Ministério da Saúde</a></li>
+        <li><a href="https://www.gov.br/saude/pt-br/acesso-a-informacao/banco-de-precos" target="_blank" rel="noopener noreferrer">Banco de Preços em Saúde (BPS) — Ministério da Saúde</a></li>
+        <li><a href="https://infoms.saude.gov.br/extensions/SEIDIGI_DEMAS_BPS/SEIDIGI_DEMAS_BPS.html" target="_blank" rel="noopener noreferrer">Painel de Preços da Saúde original — Ministério da Saúde</a></li>
+        <li><a href="https://apidadosabertos.saude.gov.br/" target="_blank" rel="noopener noreferrer">API de Dados Abertos do Ministério da Saúde</a></li>
+        <li><a href="https://www.gov.br/compras/pt-br" target="_blank" rel="noopener noreferrer">Portal de Compras do Governo Federal (Compras.gov.br)</a></li>
+        <li><a href="https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2021/lei/l14133.htm" target="_blank" rel="noopener noreferrer">Lei nº 14.133/2021 — Lei de Licitações e Contratos Administrativos</a></li>
+      </ul>
+    </div>
+    <div class="modal__rodape">
+      <button type="button" class="btn btn--primario" data-fechar>Fechar</button>
+    </div>
+  </dialog>
+
+  <noscript>
+    <p class="noscript">Este painel precisa de JavaScript para consultar e exibir os dados.</p>
+  </noscript>
+</body>
+</html>
