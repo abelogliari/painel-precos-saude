@@ -1,0 +1,71 @@
+{
+ "fonte": "Compras.gov.br",
+ "shards": 2048,
+ "linhas": 1856035,
+ "itens": 44606,
+ "dataMin": "2020-12-24",
+ "dataMax": "2026-11-23",
+ "geradoEm": "2026-11-27T16:38:37Z",
+ "colunas": [
+  "data",
+  "uf",
+  "municipio",
+  "instituicao",
+  "idInst",
+  "fornecedor",
+  "idForn",
+  "fabricante",
+  "unidade",
+  "qtd",
+  "preco",
+  "total",
+  "modalidade",
+  "esfera",
+  "tipo",
+  "generico"
+ ],
+ "linhasLidas": 1856215,
+ "ignoradas": {
+  "csvInvalido": 0,
+  "colunasInvalidas": 0,
+  "codigoInvalido": 0,
+  "dataInvalida": 0,
+  "valorNaoNumerico": 0,
+  "precoNaoPositivo": 67,
+  "qtdNaoPositiva": 113
+ },
+ "normalizacoes": {
+  "cpfMascarados": 230,
+  "ufForaDoBrasil": 1,
+  "fabricanteAusente": 7220,
+  "municipioAusente": 6932,
+  "totalDivergente": 0
+ },
+ "modalidades": {
+  "Pregão": 1693619,
+  "Dispensa de Licitação": 142581,
+  "Inexigibilidade de Licitação": 19725,
+  "Modalidade 12": 45,
+  "Concorrência": 37,
+  "RDC": 28
+ },
+ "esferas": {
+  "FEDERAL": 964357,
+  "MUNICIPAL": 617832,
+  "ESTADUAL": 273846
+ },
+ "tipos": {
+  "Registro de Preços (SRP)": 1454138,
+  "Compra direta (SISPP)": 401897
+ },
+ "arquivosEntrada": 16,
+ "arquivos": 2050,
+ "shardsGravados": 2048,
+ "maiorShard": {
+  "shard": 188,
+  "bytes": 217467,
+  "linhas": 5690
+ },
+ "bytesCatalogo": 2063624,
+ "bytes": 76699362
+}
