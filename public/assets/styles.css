@@ -335,16 +335,17 @@ select.ctrl:disabled { cursor: not-allowed; }
 .kpi__fn { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kpi__fontes b { flex: none; color: var(--texto); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+/* Esqueletos enquanto os dados chegam (o cartão inteiro ou só a linha de uma fonte) */
 .kpis.is-carregando .kpi__valor,
-.kpis.is-carregando .kpi__fontes b { color: transparent; }
+.kpi__fontes li.is-carregando b { color: transparent; }
 .kpis.is-carregando .kpi__valor::after,
-.kpis.is-carregando .kpi__fontes b::after {
+.kpi__fontes li.is-carregando b::after {
   content: ""; position: absolute; left: 0; top: .18em; width: min(72%, 170px); height: .9em; border-radius: 4px;
   background: linear-gradient(90deg, var(--cinza-2) 25%, #F7F7F7 37%, var(--cinza-2) 63%); background-size: 400% 100%;
   animation: brilho 1.3s ease infinite;
 }
-.kpis.is-carregando .kpi__fontes b { position: relative; min-width: 70px; }
-.kpis.is-carregando .kpi__fontes b::after { width: 100%; }
+.kpi__fontes li.is-carregando b { position: relative; min-width: 72px; }
+.kpi__fontes li.is-carregando b::after { top: .2em; width: 100%; }
 
 /* ---------- Abas ---------- */
 .abas { display: flex; gap: 4px; margin-top: 18px; border-bottom: 1px solid var(--cinza-3); }

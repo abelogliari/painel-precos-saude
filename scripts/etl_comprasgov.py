@@ -282,8 +282,8 @@ def processa_arquivo(tarefa):
                 cab = []
             pos = {nome.strip(): i for i, nome in enumerate(cab)}
             faltam = [c for c in USADAS if c not in pos]
-            if faltam:
-                raise SystemExit("%s: cabeçalho sem as colunas %s" % (os.path.basename(caminho), faltam))
+            if faltam:   # (ValueError, e não SystemExit: precisa voltar ao processo principal pelo Pool)
+                raise ValueError("%s: cabeçalho sem as colunas %s" % (os.path.basename(caminho), faltam))
             ncol = len(cab)
             (i_cod, i_desc, i_pdm, i_forma, i_mod, i_unid, i_unid2, i_qtd, i_preco, i_tot, i_ni, i_forn, i_marca,
              i_uasg, i_nuasg, i_mun, i_uf, i_esf, i_dc, i_dr) = [pos[c] for c in USADAS]
