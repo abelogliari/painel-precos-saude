@@ -79,22 +79,21 @@
       </div>
 
       <div class="mais">
-        <h2 class="mais__titulo">
-          <button type="button" class="mais__toggle" id="mais-toggle" aria-expanded="false" aria-controls="mais-filtros">
-            <span>Mais filtros</span>
-            <span class="mais__icone" aria-hidden="true"></span>
-            <span class="contador" id="mais-contagem" hidden></span>
-          </button>
-        </h2>
+        <div class="mais__barra">
+          <h2 class="mais__titulo">
+            <button type="button" class="mais__toggle" id="mais-toggle" aria-expanded="false" aria-controls="mais-filtros">
+              <span>Mais filtros</span>
+              <span class="mais__icone" aria-hidden="true"></span>
+              <span class="contador" id="mais-contagem" hidden></span>
+            </button>
+          </h2>
+          <button type="button" class="btn btn--secundario" id="limpar">Limpar filtros</button>
+        </div>
         <div class="mais__corpo" id="mais-filtros" hidden>
           <div class="facetas" id="facetas"></div>
           <p class="campo__ajuda">As opções de cada filtro reúnem os registros das duas fontes (BPS e Compras.gov.br) para o material, a unidade e o período selecionados. O que for marcado aqui filtra as duas abas.</p>
         </div>
-      </div>
-
-      <div class="filtros__rodape">
         <ul class="tags" id="tags" aria-label="Filtros adicionais ativos"></ul>
-        <button type="button" class="btn btn--secundario" id="limpar">Limpar filtros</button>
       </div>
     </section>
 

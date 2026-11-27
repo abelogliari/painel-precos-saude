@@ -35,6 +35,9 @@
   const ABAS = ['bps', 'cg'];                     // sufixo dos ids da aba/painel e valor de "aba" na URL
   const ARQUIVO_FONTE = ['bps', 'comprasgov'];    // trecho do nome do CSV exportado
   const RE_DATA = /^\d{4}-\d{2}-\d{2}$/;
+  // Valores que as fontes trazem em maiúsculas: rótulo usado na tabela e nos filtros (o CSV leva o valor original).
+  const ROT_ESFERA = { FEDERAL: 'Federal', ESTADUAL: 'Estadual', MUNICIPAL: 'Municipal' };
+  const ROT_TIPO = { ADMINISTRATIVA: 'Administrativa', JUDICIAL: 'Judicial' };
   const GIRO = '<i class="giro" aria-hidden="true"></i>';
   const AVISO = '<svg class="aba__aviso" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6L1.3 21h21.4L12 2.6z" fill="currentColor"/>' +
     '<path d="M12 9.6v5.2" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="17.9" r="1.3" fill="#fff"/></svg>';
@@ -669,8 +672,8 @@
     { t: 'Preço unitário', c: 10, tipo: 'num', cls: 'td--num', fmt: fPreco },
     { t: 'Total', c: 11, tipo: 'num', cls: 'td--num', fmt: fMoeda },
     { t: 'Modalidade', c: 12, tipo: 'txt', cls: 'td--curto' },
-    { t: 'Esfera', c: 13, tipo: 'txt', cls: 'td--nw' },
-    { t: 'Tipo', c: 14, tipo: 'txt', cls: 'td--curto' },
+    { t: 'Esfera', c: 13, tipo: 'txt', cls: 'td--nw', rot: ROT_ESFERA },
+    { t: 'Tipo', c: 14, tipo: 'txt', cls: 'td--curto', rot: ROT_TIPO },
   ];
   const SELO = [
     '<span class="selo selo--bps"><i class="dot dot--bps" aria-hidden="true"></i>BPS</span>',
@@ -726,7 +729,7 @@
       else if (c.tipo === 'num') h += '<td class="td--num">' + c.fmt.format(v) + '</td>';
       else if (c.tipo === 'data') h += '<td class="td--nw">' + dataBr(v) + '</td>';
       else if (c.id !== undefined && r[c.id]) h += '<td class="' + c.cls + '" title="' + esc(rotuloId(r, c.id)) + '">' + esc(v) + '</td>';
-      else h += '<td class="' + c.cls + '">' + esc(v) + '</td>';
+      else h += '<td class="' + c.cls + '">' + esc((c.rot && c.rot[v]) || v) + '</td>';
     }
     return h + '</tr>';
   }
@@ -837,13 +840,12 @@
 
   /* ============================== Facetas ("Mais filtros") ============================== */
 
-  const ROT_ESFERA = { FEDERAL: 'Federal', ESTADUAL: 'Estadual', MUNICIPAL: 'Municipal' };
   const FACETAS = [
     { k: 'uf', t: 'UF', c: 1 },
     { k: 'municipio', t: 'Município', c: 2 },
     { k: 'esfera', t: 'Esfera', c: 13, rot: ROT_ESFERA },
     { k: 'modalidade', t: 'Modalidade', c: 12 },
-    { k: 'tipo', t: 'Tipo de compra', c: 14 },
+    { k: 'tipo', t: 'Tipo de compra', c: 14, rot: ROT_TIPO },
     { k: 'fornecedor', t: 'Fornecedor', c: 5 },
     { k: 'fabricante', t: 'Fabricante/Marca', c: 7 },
     { k: 'instituicao', t: 'Instituição compradora', c: 3 },
