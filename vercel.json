@@ -4,6 +4,11 @@
   "buildCommand": null,
   "outputDirectory": "public",
   "cleanUrls": true,
+  "git": {
+    "deploymentEnabled": {
+      "dev": false
+    }
+  },
   "headers": [
     {
       "source": "/data/(.*)",
